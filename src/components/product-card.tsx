@@ -21,7 +21,7 @@ export function ProductCard({ product }: { product: Product }) {
       </a>
       <div className="flex flex-col gap-1">
         <span className="label-caps text-stone">{product.category}</span>
-        <a className="link text-sm" href="#">
+        <a className="link text-base font-medium" href="#">
           {product.name}
         </a>
         <span className="text-sm text-ink-soft">

@@ -10,9 +10,30 @@ export default function Home() {
     <div className="flex flex-1 flex-col bg-paper">
       <header className="divider sticky top-0 z-20 bg-paper/95 backdrop-blur">
         <div className="container-shell flex h-20 items-center justify-between">
-          <span className="font-serif text-2xl tracking-tightest">
-            Atelier
-          </span>
+          <div className="flex items-center gap-4">
+            <details className="group relative md:hidden">
+              <summary className="label-caps flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
+                Menu
+              </summary>
+              <nav className="divider absolute left-0 top-[calc(100%+1.25rem)] z-30 flex w-48 flex-col gap-4 bg-paper p-6 shadow-sm">
+                <a className="link-nav" href="#new-arrivals">
+                  New Arrivals
+                </a>
+                <a className="link-nav" href="#women">
+                  Women
+                </a>
+                <a className="link-nav" href="#men">
+                  Men
+                </a>
+                <a className="link-nav" href="#accessories">
+                  Accessories
+                </a>
+              </nav>
+            </details>
+            <span className="font-serif text-2xl tracking-tightest">
+              Atelier
+            </span>
+          </div>
           <nav className="hidden items-center gap-8 md:flex">
             <a className="link-nav" href="#new-arrivals">
               New Arrivals
@@ -81,10 +102,14 @@ export default function Home() {
 
         {/* Value strip ----------------------------------------------------- */}
         <section className="divider">
-          <div className="container-shell grid grid-cols-1 gap-6 py-8 text-center sm:grid-cols-3">
-            <p className="label-caps text-stone">Complimentary Shipping</p>
-            <p className="label-caps text-stone">30-Day Returns</p>
-            <p className="label-caps text-stone">Made to Last</p>
+          <div className="container-shell grid grid-cols-1 divide-y divide-line py-(--spacing-section-sm) text-center sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+            <p className="label-caps py-4 text-stone sm:py-0">
+              Complimentary Shipping
+            </p>
+            <p className="label-caps py-4 text-stone sm:py-0">
+              30-Day Returns
+            </p>
+            <p className="label-caps py-4 text-stone sm:py-0">Made to Last</p>
           </div>
         </section>
 
