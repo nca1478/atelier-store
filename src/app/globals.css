@@ -1,26 +1,358 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* ==========================================================================
+   Design tokens
+   Luxury-fashion-storefront system: quiet neutral palette, generous
+   whitespace, hairline borders, uppercase tracked micro-copy, sharp-edged
+   buttons. Modeled on the conventions of high-end fashion ecommerce
+   (Gucci et al.) — not their assets, copy, or brand marks.
+   ========================================================================== */
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+:root {
+  /* Core neutrals — warm off-white paper rather than pure white, near-black
+     ink rather than pure black, so large fields of color stay soft. */
+  --color-paper: #ffffff;
+  --color-bone: #f7f5f2;
+  --color-sand: #ece7de;
+  --color-line: #ddd7cb;
+  --color-stone: #8a8478;
+  --color-ink-soft: #4a463f;
+  --color-ink: #1a1815;
+
+  /* Accent — muted bronze, used sparingly for hover/active states, never
+     as a primary fill. */
+  --color-accent: #6b5a3e;
+  --color-accent-soft: #a9906a;
+
+  /* Feedback */
+  --color-error: #b3261e;
+  --color-success: #2e5339;
+
+  /* Aliases consumed by shadcn-style tooling / prefers-color-scheme */
+  --background: var(--color-paper);
+  --foreground: var(--color-ink);
+
+  /* Type scale — fluid, generous line-height on display sizes to echo
+     editorial print layouts. */
+  --text-2xs: 0.6875rem;   /* 11px — eyebrow / meta labels */
+  --text-xs: 0.75rem;      /* 12px */
+  --text-sm: 0.8125rem;    /* 13px */
+  --text-base: 0.9375rem;  /* 15px — body copy runs small & tracked */
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-3xl: 2.25rem;
+  --text-4xl: 3rem;
+  --text-5xl: clamp(3rem, 2.2rem + 3.5vw, 5rem);
+
+  /* Tracking — nav/labels/buttons are uppercase and widely tracked;
+     headings are tight; body sits in between. */
+  --tracking-tightest: -0.02em;
+  --tracking-tight: -0.01em;
+  --tracking-normal: 0em;
+  --tracking-wide: 0.04em;
+  --tracking-wider: 0.08em;
+  --tracking-widest: 0.16em;
+
+  /* Spacing rhythm — extra steps at the top for the oversized section
+     gutters editorial storefronts rely on. */
+  --spacing-section-sm: 3rem;
+  --spacing-section: 5rem;
+  --spacing-section-lg: 8rem;
+
+  /* Containers */
+  --container-content: 84rem;   /* 1344px — primary grid */
+  --container-prose: 40rem;     /* copy-heavy panels */
+  --container-gutter: 1.25rem;  /* mobile side padding */
+  --container-gutter-lg: 3rem;  /* desktop side padding */
+
+  /* Borders & radius — square-edged by default; radius reserved for pills
+     (buttons, tags) and small UI chrome (inputs, cards). */
+  --radius-none: 0px;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-pill: 999px;
+  --border-hairline: 1px;
+
+  /* Motion — slow, understated transitions rather than snappy UI easing. */
+  --ease-editorial: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-fast: 150ms;
+  --duration-base: 300ms;
+  --duration-slow: 500ms;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: var(--color-ink);
+    --foreground: var(--color-bone);
   }
+}
+
+/* Map tokens into Tailwind's theme so they're usable as utilities:
+   bg-paper, text-ink, border-line, tracking-widest, container-content, etc. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-paper: var(--color-paper);
+  --color-bone: var(--color-bone);
+  --color-sand: var(--color-sand);
+  --color-line: var(--color-line);
+  --color-stone: var(--color-stone);
+  --color-ink-soft: var(--color-ink-soft);
+  --color-ink: var(--color-ink);
+  --color-accent: var(--color-accent);
+  --color-accent-soft: var(--color-accent-soft);
+  --color-error: var(--color-error);
+  --color-success: var(--color-success);
+
+  --font-sans: var(--font-geist-sans);
+  --font-serif: var(--font-display);
+  --font-mono: var(--font-geist-mono);
+
+  --text-2xs: var(--text-2xs);
+  --text-xs: var(--text-xs);
+  --text-sm: var(--text-sm);
+  --text-base: var(--text-base);
+  --text-lg: var(--text-lg);
+  --text-xl: var(--text-xl);
+  --text-2xl: var(--text-2xl);
+  --text-3xl: var(--text-3xl);
+  --text-4xl: var(--text-4xl);
+  --text-5xl: var(--text-5xl);
+
+  --tracking-tightest: var(--tracking-tightest);
+  --tracking-tight: var(--tracking-tight);
+  --tracking-normal: var(--tracking-normal);
+  --tracking-wide: var(--tracking-wide);
+  --tracking-wider: var(--tracking-wider);
+  --tracking-widest: var(--tracking-widest);
+
+  --spacing-section-sm: var(--spacing-section-sm);
+  --spacing-section: var(--spacing-section);
+  --spacing-section-lg: var(--spacing-section-lg);
+
+  --container-content: var(--container-content);
+  --container-prose: var(--container-prose);
+
+  --radius-none: var(--radius-none);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-pill: var(--radius-pill);
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+
+* {
+  border-color: var(--color-line);
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  font-size: var(--text-base);
+  line-height: 1.6;
+  letter-spacing: var(--tracking-normal);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-serif), Georgia, serif;
+  font-weight: 500;
+  letter-spacing: var(--tracking-tightest);
+  line-height: 1.1;
+}
+
+a {
+  color: inherit;
+}
+
+/* ==========================================================================
+   Reusable primitives
+   ========================================================================== */
+
+@layer components {
+  /* Page-width shell: pins content to a max width with responsive gutters. */
+  .container-shell {
+    width: 100%;
+    max-width: var(--container-content);
+    margin-inline: auto;
+    padding-inline: var(--container-gutter);
+  }
+
+  @media (min-width: 64rem) {
+    .container-shell {
+      padding-inline: var(--container-gutter-lg);
+    }
+  }
+
+  /* Narrower shell for prose/forms. */
+  .container-prose {
+    width: 100%;
+    max-width: var(--container-prose);
+    margin-inline: auto;
+    padding-inline: var(--container-gutter);
+  }
+
+  /* Eyebrow / micro-label: uppercase, widely tracked, small — used for
+     category labels, nav items, price captions. */
+  .label-caps {
+    font-size: var(--text-2xs);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-widest);
+    color: var(--color-ink);
+  }
+
+  /* Hairline rule, the primary separator throughout the layout instead of
+     shadows or heavy borders. */
+  .divider {
+    border-top: var(--border-hairline) solid var(--color-line);
+  }
+
+  /* Buttons ------------------------------------------------------------- */
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    height: 3rem;
+    padding-inline: 1.75rem;
+    border-radius: var(--radius-none);
+    font-size: var(--text-2xs);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-widest);
+    white-space: nowrap;
+    transition: background-color var(--duration-base) var(--ease-editorial),
+      color var(--duration-base) var(--ease-editorial),
+      border-color var(--duration-base) var(--ease-editorial);
+  }
+
+  .btn:disabled {
+    opacity: 0.4;
+    pointer-events: none;
+  }
+
+  .btn-primary {
+    background: var(--color-ink);
+    color: var(--color-paper);
+    border: var(--border-hairline) solid var(--color-ink);
+  }
+
+  .btn-primary:hover {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+  }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--color-ink);
+    border: var(--border-hairline) solid var(--color-ink);
+  }
+
+  .btn-secondary:hover {
+    background: var(--color-ink);
+    color: var(--color-paper);
+  }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--color-ink);
+    border: var(--border-hairline) solid transparent;
+  }
+
+  .btn-ghost:hover {
+    border-color: var(--color-line);
+  }
+
+  /* Links ----------------------------------------------------------------
+     Underline draws in on hover from a hidden baseline, rather than being
+     always-on — keeps running copy quiet until interacted with. */
+
+  .link {
+    position: relative;
+    display: inline-block;
+    color: var(--color-ink);
+  }
+
+  .link::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 100%;
+    bottom: -2px;
+    height: 1px;
+    background: currentColor;
+    transition: right var(--duration-base) var(--ease-editorial);
+  }
+
+  .link:hover::after {
+    right: 0;
+  }
+
+  .link-nav {
+    font-size: var(--text-2xs);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-widest);
+    color: var(--color-ink);
+    transition: color var(--duration-fast) var(--ease-editorial);
+  }
+
+  .link-nav:hover {
+    color: var(--color-stone);
+  }
+
+  /* Form controls ---------------------------------------------------------*/
+
+  .input {
+    height: 3rem;
+    width: 100%;
+    padding-inline: 1rem;
+    background: var(--color-paper);
+    border: var(--border-hairline) solid var(--color-line);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
+    transition: border-color var(--duration-fast) var(--ease-editorial);
+  }
+
+  .input:focus {
+    outline: none;
+    border-color: var(--color-ink);
+  }
+
+  /* Card / product tile ---------------------------------------------------
+     No shadow, no radius on the media block — separation comes from
+     whitespace and a hairline border only where content needs grouping. */
+
+  .card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .card-media {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 3 / 4;
+    overflow: hidden;
+    background: var(--color-bone);
+  }
+
+  .card-media img {
+    transition: transform var(--duration-slow) var(--ease-editorial);
+  }
+
+  .card:hover .card-media img {
+    transform: scale(1.04);
+  }
 }
