@@ -2,21 +2,31 @@ import Image from "next/image";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { getProductById, getRelatedProducts, products } from "@/data/products";
+import {
+  getProductById,
+  getProductIds,
+  getRelatedProducts,
+} from "@/data/products";
 import { formatPrice } from "@/lib/format";
 import { ProductCard } from "@/components/product-card";
 import { StockStatus } from "@/components/stock-status";
 import { ValueStrip } from "@/components/value-strip";
 
-export function generateStaticParams() {
-  return products.map((product) => ({ id: product.id }));
+// Prerendered at build from the database, then refreshed in the background at
+// most once a minute. Ids that appear in the catalog later are rendered on
+// demand and cached, so a new piece does not need a rebuild.
+export const revalidate = 60;
+
+export async function generateStaticParams() {
+  const ids = await getProductIds();
+  return ids.map((id) => ({ id }));
 }
 
 export async function generateMetadata(
   props: PageProps<"/products/[id]">,
 ): Promise<Metadata> {
   const { id } = await props.params;
-  const product = getProductById(id);
+  const product = await getProductById(id);
 
   if (!product) {
     return { title: "Not found — Atelier" };
@@ -30,13 +40,13 @@ export async function generateMetadata(
 
 export default async function ProductPage(props: PageProps<"/products/[id]">) {
   const { id } = await props.params;
-  const product = getProductById(id);
+  const product = await getProductById(id);
 
   if (!product) {
     notFound();
   }
 
-  const related = getRelatedProducts(product.id);
+  const related = await getRelatedProducts(product.id);
 
   return (
     <main className="flex-1">
@@ -79,7 +89,7 @@ export default async function ProductPage(props: PageProps<"/products/[id]">) {
           <div className="flex flex-col gap-2">
             <span className="label-caps text-stone">{product.category}</span>
             <h1 className="text-4xl">{product.name}</h1>
-            <span className="text-lg">{formatPrice(product.price)}</span>
+            <span className="text-lg">{formatPrice(product.priceCents)}</span>
           </div>
 
           <StockStatus stock={product.stock} />

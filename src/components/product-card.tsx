@@ -23,7 +23,7 @@ export function ProductCard({ product }: { product: Product }) {
           {product.name}
         </Link>
         <span className="text-sm text-ink-soft">
-          {formatPrice(product.price)}
+          {formatPrice(product.priceCents)}
         </span>
       </div>
     </article>

@@ -7,9 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project state
 
 A Next.js 16 (App Router, Turbopack) storefront for a fashion label. The front end is built out — homepage,
-product detail pages, shared site chrome — against a hardcoded sample catalog. Authentication (Better Auth)
-and the database layer (Drizzle ORM + Postgres) are wired up but unused by the storefront: there is no
-commerce backend, cart, or checkout yet, and product data does not come from the database.
+product detail pages, shared site chrome — and reads its catalog from Postgres through Drizzle ORM.
+Authentication (Better Auth) is wired up. There is still no commerce backend, cart, or checkout: the catalog
+is read-only and `src/db/seed.ts` is the only write path.
 
 ## Commands
 
@@ -22,7 +22,10 @@ npm run lint            # ESLint (flat config, eslint-config-next)
 npm run db:generate   # generate SQL migrations from src/db/schema/* (drizzle-kit generate)
 npm run db:push        # push schema directly to the database (no migration files)
 npm run db:migrate      # apply generated migrations
+npm run db:seed          # upsert the sample catalog (tsx, idempotent)
 npm run db:studio        # open Drizzle Studio
+
+npx next typegen        # regenerate PageProps/LayoutProps route types
 ```
 
 There is no test runner configured in this repo, and no `typecheck` script — use `npx tsc --noEmit`.
@@ -34,33 +37,43 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
 ## Architecture
 
 - **Path alias**: `@/*` maps to `src/*` (see `tsconfig.json`).
-- **`src/app/`** — routes.
+- **`src/app/`** — routes. Both catalog routes export `revalidate = 60`, so they prerender at build and then
+  refresh in the background: prices and stock can trail live data by up to a minute, and `next build`
+  **requires a reachable database**.
   - `page.tsx` — the homepage: hero, collections, New Arrivals / Best Sellers product grids, editorial
     banner, newsletter.
-  - `products/[id]/page.tsx` — product detail. Prerenders every catalog entry via `generateStaticParams`,
-    sets per-product metadata, and calls `notFound()` for an unknown id.
+  - `products/[id]/page.tsx` — product detail. Prerenders every catalog entry via `generateStaticParams`
+    (async, reads ids from the database), sets per-product metadata, and calls `notFound()` for an unknown id.
+    Ids added to the catalog later render on demand and are cached, so they need no rebuild.
   - `not-found.tsx` — styled 404, rendered inside the root layout so it keeps the site chrome.
   - `layout.tsx` — root layout. Mounts `SiteHeader` and `SiteFooter` around `{children}`, so **every route
     gets the site chrome for free**; don't re-render header/footer inside a page.
-- **`src/data/products.ts`** — the sample catalog, and the only source of product data. Defines `Product`
-  (including `description`, `details`, and `stock` — `0` means sold out) and `Collection`, plus
-  `getProductById` and `getRelatedProducts`. Swap for real CMS/DB reads when the commerce layer lands;
-  nothing here touches `src/db/`.
+- **`src/data/products.ts`** — the catalog queries, and the only place the storefront reads product data.
+  Every function returns the `Product` view model (`priceCents`, `category` as the joined label, `stock` —
+  `0` means sold out) so components never see a join or a database column. `getProductById` is wrapped in
+  React's `cache` so `generateMetadata` and the page share one query per request. `collections` also lives
+  here but is *marketing* copy, not catalog data: its tiles don't map to rows in `categories`.
 - **`src/components/`** — one component per file. `site-header.tsx`, `site-footer.tsx` and `value-strip.tsx`
   are the shared chrome; `product-card.tsx` is the catalog tile (links to `/products/[id]`) and is reused by
   the homepage grids and the related-pieces rail; `stock-status.tsx` holds the single low-stock threshold.
-- **`src/lib/format.ts`** — `formatPrice`, the shared `Intl.NumberFormat`. Import it rather than creating
-  another currency formatter.
+- **`src/lib/format.ts`** — `formatPrice`, the shared `Intl.NumberFormat`. It takes **cents** (the stored
+  unit), so pass `product.priceCents` straight through. Import it rather than creating another formatter.
 - **`src/db/`** — Drizzle ORM setup.
   - `connection.ts` exports `db` (drizzle instance over `postgres-js`), plus the `getDb`/`getClient`
     accessors behind it, reading `DATABASE_URL`. The client is created on **first use**, not at module load,
     and `db` is a proxy that only connects when something queries it — keep it that way, since `next build`
     evaluates every route module (see Environment variables).
-  - `schema/` — one file per table domain, re-exported through `schema/index.ts`. `users.ts` currently defines
-    the four Better Auth tables: `users`, `sessions`, `accounts`, `verifications`. Add new tables as sibling
-    files and re-export them from `index.ts`.
+  - `schema/` — one file per table domain, re-exported through `schema/index.ts`. `users.ts` defines the four
+    Better Auth tables: `users`, `sessions`, `accounts`, `verifications`. `catalog.ts` defines `categories`
+    and `products`: a product belongs to one category (`category_id`, `onDelete: 'restrict'`), prices are
+    stored as `price_cents` integers, and `stock`/`price_cents` are guarded by `CHECK (... >= 0)`.
+    `details` is `jsonb` because its order is meaningful and nothing queries by label. Add new tables as
+    sibling files and re-export them from `index.ts`.
+  - `seed.ts` — upserts the sample catalog. Run through `tsx`, not plain `node`: Node's native type stripping
+    needs explicit extensions on relative imports and the schema barrel's `export * from './users'` has none.
   - `src/lib/db.ts` re-exports `db`/`DB` from `src/db/connection.ts` for app code to import.
-  - `drizzle.config.ts` points at `src/db/schema/*` and outputs migrations to `./drizzle`.
+  - `drizzle.config.ts` points at `src/db/schema/*` and outputs migrations to `./drizzle`; it loads
+    `.env` itself via `dotenv/config`, so `DATABASE_URL` is available to `drizzle-kit` without exporting it.
 - **`src/auth/config.ts`** — the single Better Auth server instance (`auth`), configured with the Drizzle
   adapter (`provider: 'pg'`) and mapped to the schema tables above. The schema keys are plural (`users`, not
   `user`), so the adapter needs `usePlural: true`; without it Better Auth logs a `Drizzle schema mismatch` and
@@ -84,9 +97,10 @@ deploying somewhere other than `localhost:3000`, since `auth-client.ts` reads it
 
 `DATABASE_URL` must be a real, parseable URL *by the time a query runs*: `postgres()` throws
 `ERR_INVALID_URL` on the `.env.example` placeholder (`postgresql://user:password@host:port/database`). Because
-that connection is now created lazily, a placeholder only fails at the first query instead of during
-`next build` page-data collection — but don't make the connection eager again, or the build breaks for anyone
-without a real database.
+that connection is created lazily, a placeholder fails at the first query rather than at module evaluation —
+but keep in mind that the catalog routes query from `next build` (they prerender), so a build needs a
+reachable database even though importing the modules does not. Don't make the connection eager again, or the
+build breaks at import time for everyone without a real database.
 
 ## Working in this Next.js version
 

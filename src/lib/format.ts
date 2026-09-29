@@ -7,6 +7,7 @@ const currency = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 });
 
-export function formatPrice(value: number): string {
-  return currency.format(value);
+/** `cents` is the unit prices are stored in — see `products.price_cents`. */
+export function formatPrice(cents: number): string {
+  return currency.format(cents / 100);
 }

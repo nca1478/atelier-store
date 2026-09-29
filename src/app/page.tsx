@@ -1,12 +1,18 @@
 import Image from "next/image";
-import { collections, products } from "@/data/products";
+import { collections, getBestSellers, getNewArrivals } from "@/data/products";
 import { ProductCard } from "@/components/product-card";
 import { ValueStrip } from "@/components/value-strip";
 
-const newArrivals = products.slice(0, 4);
-const bestSellers = products.slice(4, 8);
+// Prerendered at build from the database, then refreshed in the background at
+// most once a minute — prices and stock can trail live data by up to 60s.
+export const revalidate = 60;
 
-export default function Home() {
+export default async function Home() {
+  const [newArrivals, bestSellers] = await Promise.all([
+    getNewArrivals(),
+    getBestSellers(),
+  ]);
+
   return (
     <main className="flex-1">
       {/* Hero ---------------------------------------------------------- */}
