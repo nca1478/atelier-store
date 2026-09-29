@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { formatPrice } from "@/lib/format";
+import { CardAddButton } from "@/components/card-add-button";
 import type { Product } from "@/data/products";
 
 export function ProductCard({ product }: { product: Product }) {
@@ -25,6 +26,9 @@ export function ProductCard({ product }: { product: Product }) {
         <span className="text-sm text-ink-soft">
           {formatPrice(product.priceCents)}
         </span>
+        {/* The card's only client boundary — the tile itself stays a Server
+            Component, so a grid of them ships one small island per tile. */}
+        <CardAddButton productId={product.id} stock={product.stock} />
       </div>
     </article>
   );

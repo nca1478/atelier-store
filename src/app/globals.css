@@ -281,6 +281,13 @@
     border-color: var(--color-line);
   }
 
+  /* Compact variant for a product tile, where a 3rem control would dominate the
+     card. Declared after .btn so source order lets it win inside this layer. */
+  .btn-sm {
+    height: 2.25rem;
+    padding-inline: 1rem;
+  }
+
   /* Links ----------------------------------------------------------------
      Underline draws in on hover from a hidden baseline, rather than being
      always-on — keeps running copy quiet until interacted with. */
@@ -356,6 +363,45 @@
   .select:focus {
     outline: none;
     border-color: var(--color-ink);
+  }
+
+  /* Quantity stepper ------------------------------------------------------
+     A hairline box of square hit targets, the same weight as .select. Shared by
+     the product page's picker and each bag line's control: the two behave
+     differently — one is local state, the other is the server's number — so they
+     share a class rather than a component. */
+
+  .stepper {
+    display: inline-flex;
+    align-items: center;
+    border: var(--border-hairline) solid var(--color-line);
+  }
+
+  .stepper-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    font-size: var(--text-base);
+    color: var(--color-ink);
+    transition: background-color var(--duration-fast) var(--ease-editorial);
+  }
+
+  .stepper-button:hover:not(:disabled) {
+    background: var(--color-bone);
+  }
+
+  .stepper-button:disabled {
+    opacity: 0.4;
+    pointer-events: none;
+  }
+
+  .stepper-value {
+    min-width: 2.5rem;
+    text-align: center;
+    font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums;
   }
 
   /* Card / product tile ---------------------------------------------------

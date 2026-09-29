@@ -10,8 +10,11 @@ A Next.js 16 (App Router, Turbopack) storefront for a fashion label. The front e
 product detail pages, shared site chrome — and reads its catalog from Postgres through Drizzle ORM.
 Authentication (Better Auth) is usable: email/password sign-up, sign-in and sign-out, sessions stored in
 Postgres, `/account` behind a session guard, and `/admin` behind a `role` column. Social login, password
-reset, email verification and 2FA are deliberately absent. There is still no commerce backend, cart, or
-checkout: the catalog is read-only, and `src/db/seed.ts` / `src/db/seed-admin.ts` are the only write paths.
+reset, email verification and 2FA are deliberately absent. Shopping works as far as *collecting*: a guest bag
+that adds pieces, changes quantities and shows a server-computed subtotal (see the cart bullets under
+Architecture). There is still no commerce backend: no Stripe, no checkout, no orders, no stock reservation —
+the "Checkout coming soon" button on `/cart` is deliberately inert. The catalog is otherwise read-only, and
+`src/db/seed.ts` / `src/db/seed-admin.ts` remain the only write paths.
 
 ## Commands
 
@@ -57,10 +60,13 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
   - `account/page.tsx` — calls `requireUser()`; shows name, email, a sign-out button, and an admin link when
     the role warrants one.
   - `admin/page.tsx` — calls `requireAdmin()`; renders the "not authorized" panel when it returns `null`.
-  - Unlike the catalog routes, these four are `ƒ` (dynamic) — they read cookies or `searchParams`. That is
+  - `cart/page.tsx` — the bag. Server Component (dynamic: it reads the cart cookie) that renders one row per
+    line, the subtotal, and the inert checkout button. Every number on it comes from `src/data/cart.ts`; no
+    price is ever computed in the browser. `robots: { index: false }`, since a bag is per-visitor.
+  - Unlike the catalog routes, these five are `ƒ` (dynamic) — they read cookies or `searchParams`. That is
     expected: `next build` should still report `/`, `/new-arrivals` and `/products/[slug]` as static/SSG. If
-    they ever flip to dynamic, something in the shared chrome started reading the session on the server; see
-    the `account-link.tsx` note under `src/components/`.
+    they ever flip to dynamic, something in the shared chrome started reading the session or the cart on the
+    server; see the `account-link.tsx` / `cart-count-link.tsx` note under `src/components/`.
 - **`src/data/products.ts`** — the catalog queries, and the only place the storefront reads product data.
   Every function returns the `Product` view model (`priceCents`, `category` as the joined label, `stock` —
   `0` means sold out) so components never see a join or a database column. Lookups are by `slug`
@@ -68,17 +74,50 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
   React keys) and `slug` (for links), and only `product-card.tsx` should be building a product URL.
   `getProductBySlug` is wrapped in React's `cache` so `generateMetadata` and the page share one query per
   request. `collections` also lives here but is *marketing* copy, not catalog data: its tiles don't map to
-  rows in `categories`.
+  rows in `categories`. `getProductsByIds` is the cart's query, and it filters to valid uuid shapes
+  *before* the `where … in (…)` — an id that isn't a uuid reaching Postgres is a `22P02`, i.e. a 500 on
+  `/cart` from a hand-edited cookie. The guard is deliberately duplicated in the cookie parser.
+- **`src/lib/cart.ts`** — the pure cart model: the cookie's name and limits (`MAX_CART_LINES`,
+  `MAX_LINE_QUANTITY`, `MAX_COOKIE_LENGTH`), `parseCartCookie` / `serializeCartCookie`, `isProductId`, and the
+  line operations (`upsertCartLine`, `setCartLineQuantity`, `removeCartLine`). No React, no `document`, no
+  `next/headers`, no drizzle — both the server (`/cart`) and the client store import it, so it must not drag a
+  server dependency into the browser bundle. The value is `uuid.qty` pairs joined by `~`, not JSON: `~` and `.`
+  are legal cookie-octets (RFC 6265), so it is never percent-encoded and reads straight from DevTools. Parsing
+  is allowlist-and-fallback — every missing, oversized, corrupt or hostile value returns `[]`, never throws.
+  `upsertCartLine` clamps the *result* (adding 3 to a bag holding 2 with stock 4 gives 4, not 5).
+- **`src/lib/cart-store.ts`** — the client store (`"use client"`): a module-level snapshot over
+  `useSyncExternalStore`, and the **only** place in the app that writes `document.cookie`. A module store
+  rather than a provider in `layout.tsx`, so no new client boundary wraps `{children}`. Two invariants are
+  load-bearing and commented in the file: `getSnapshot` must return the cached reference and must **never** read
+  the cookie (or React loops with "The result of getSnapshot should be cached", or warns of a hydration
+  mismatch); and `getServerSnapshot` returns `{ status: "unknown" }`, which doubles as the header's pending
+  placeholder. The first read happens in `subscribe`, which only ever runs in an effect on the client.
+- **`src/data/cart.ts`** — the authoritative cart, server-only (reads `next/headers`). `getCart()` turns the
+  cookie into prices, stock and totals: the cookie carries *intent* — which pieces, how many — and every number
+  the UI shows (unit price, line total, subtotal, **and the quantity itself**) is decided here from the
+  database. This is the clamp that survives a stale page, a hand-edited cookie, or stock changed in Drizzle
+  Studio between renders. `authoritativeCartCookie()` re-serializes that answer for `CartReconciler` to write
+  back, which is how a sold-out or deleted piece leaves the bag. A deleted piece and a sold-out one are both
+  `unavailable`; the UI tells them apart by `product === null`.
 - **`src/components/`** — one component per file. `site-header.tsx`, `site-footer.tsx` and `value-strip.tsx`
   are the shared chrome; `product-card.tsx` is the catalog tile (links to `/products/<slug>`) and is reused
   by the homepage grids and the related-pieces rail; `stock-status.tsx` holds the single low-stock threshold.
   `auth-form.tsx` is the one Client Component behind both `/sign-in` and `/sign-up` (`mode` prop — splitting
   it in two would duplicate the form), `sign-out-button.tsx` signs out then refreshes, and `account-link.tsx`
   is the header's account/sign-in link.
-  `account-link.tsx` **must stay client-side**. `SiteHeader` renders from the root layout, so reading the
-  session there with `headers()`/`cookies()` would opt *every* route into dynamic rendering and cost the
-  catalog its `revalidate = 60` prerendering. It uses `useSession()` instead, and renders an invisible
-  placeholder while pending so the header doesn't jump.
+  The cart's components split by authority. `add-to-bag.tsx` (the product-detail control) and
+  `card-add-button.tsx` (the compact button embedded in `product-card.tsx`) are Client Components that
+  *express intent* — they write the cookie through the store and never compute a price. `cart-line-item.tsx`
+  is a **Server** Component: it renders a row's price, line total and stock notice, and embeds
+  `cart-line-controls.tsx`, the client island that changes quantity and calls `router.refresh()`.
+  `cart-reconciler.tsx` is a client component that renders `null`; on mount it writes the server's answer
+  back to the cookie so a sold-out or deleted piece drops out.
+  `account-link.tsx` and `cart-count-link.tsx` **must stay client-side**. `SiteHeader` renders from the root
+  layout, so reading the session or the cart cookie there with `headers()`/`cookies()` would opt *every* route
+  into dynamic rendering and cost the catalog its `revalidate = 60` prerendering. `account-link.tsx` uses
+  `useSession()`; `cart-count-link.tsx` reads the module store. Both render an invisible same-width
+  placeholder while pending so the header doesn't jump. This is also why the cart cookie is **not**
+  `httpOnly` — the header count is read in the browser.
 - **`src/lib/format.ts`** — `formatPrice`, the shared `Intl.NumberFormat`. It takes **cents** (the stored
   unit), so pass `product.priceCents` straight through. Import it rather than creating another formatter.
 - **`src/db/`** — Drizzle ORM setup.

@@ -8,6 +8,7 @@ import {
   getRelatedProducts,
 } from "@/data/products";
 import { formatPrice } from "@/lib/format";
+import { AddToBag } from "@/components/add-to-bag";
 import { ProductCard } from "@/components/product-card";
 import { StockStatus } from "@/components/stock-status";
 import { ValueStrip } from "@/components/value-strip";
@@ -100,13 +101,7 @@ export default async function ProductPage(
             {product.description}
           </p>
 
-          <button
-            type="button"
-            className="btn btn-primary w-full sm:w-auto"
-            disabled={product.stock <= 0}
-          >
-            {product.stock <= 0 ? "Sold out" : "Add to bag"}
-          </button>
+          <AddToBag productId={product.id} stock={product.stock} />
 
           {/* Details */}
           <dl className="divider mt-2 flex flex-col">

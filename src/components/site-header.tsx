@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { AccountLink } from "@/components/account-link";
+import { CartCountLink } from "@/components/cart-count-link";
 
 const navLinks = [
   { href: "/products", label: "Shop" },
@@ -48,9 +49,9 @@ export function SiteHeader() {
           </Link>
           {/* Client-side session read — see account-link.tsx for why. */}
           <AccountLink />
-          <a className="link-nav" href="#">
-            Bag (0)
-          </a>
+          {/* Client-side cart read, for the same reason as AccountLink: this header
+              renders from the root layout. */}
+          <CartCountLink />
         </div>
       </div>
     </header>

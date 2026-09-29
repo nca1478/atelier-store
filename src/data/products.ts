@@ -3,9 +3,10 @@
 // comes from a join rather than the static array this module used to hold.
 
 import { cache } from "react";
-import { and, asc, desc, eq, ilike, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, ne, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { categories, products } from "@/db/schema";
+import { isProductId } from "@/lib/cart";
 
 export type ProductDetail = { label: string; value: string };
 
@@ -275,6 +276,30 @@ export const getProductBySlug = cache(
     return product;
   },
 );
+
+/**
+ * The rows behind a bag. Ids arrive from a client-written cookie, so anything that
+ * is not a uuid is dropped *here*, before Postgres sees it: `where id in (…)` with a
+ * malformed uuid raises `invalid input syntax for type uuid` (22P02), which would
+ * turn a tampered cookie into a 500 on `/cart`. The parser rejects the same shapes —
+ * two checks on untrusted input reaching SQL is the right amount of paranoia.
+ *
+ * Order is not meaningful: the caller re-orders by the cookie's line order, so no
+ * `orderBy` is applied. An id with no row simply does not come back, which is how a
+ * piece that has left the catalog is detected.
+ */
+export async function getProductsByIds(ids: string[]): Promise<Product[]> {
+  const wanted = [...new Set(ids.filter(isProductId))];
+
+  // `inArray(x, [])` degenerates into invalid SQL, so the empty case never reaches it.
+  if (wanted.length === 0) return [];
+
+  return db
+    .select(productColumns)
+    .from(products)
+    .innerJoin(categories, eq(products.categoryId, categories.id))
+    .where(inArray(products.id, wanted));
+}
 
 /** Every slug in the catalog — the input for `generateStaticParams`. */
 export async function getProductSlugs(): Promise<string[]> {
