@@ -13,16 +13,40 @@ import { sql } from 'drizzle-orm';
 import { db, getClient } from './connection';
 import { categories, products, type ProductDetail } from './schema';
 
+// Ids are hardcoded rather than generated with `randomUUID()`: the whole script
+// is an upsert keyed on them, so stable ids are what make re-running it update
+// the same rows instead of inserting eight new pieces every time. The slugs are
+// what the storefront links to, so those stay the readable part.
+const categoryIds = {
+  outerwear: '5b1f7c2e-9a34-4d6b-8f01-3c7e2a9d4b10',
+  knitwear: 'a3d9f1b6-4c72-4e85-9a2d-6b0f8c1e5a37',
+  footwear: 'c7e2a4d8-1f63-49b0-8d5a-2e9c7b3f1a64',
+  accessories: 'e1b8c5a2-7d41-4a93-9e6f-0d3b8a2c7f95',
+  readyToWear: '2f6a9d4c-8b17-4c52-8a3e-5d1f9b6e2c48',
+} as const;
+
+const productIds = {
+  woolCoat: '7c3e1a9f-2d84-4b16-9f7a-1e5c8b2d4a03',
+  bomberJacket: 'b4d2f8c1-6a93-4e27-8c1b-9f3a7d5e2b86',
+  fringePoncho: '3a8f5e2d-9c41-4d78-9b3f-6e2a1c7d5b04',
+  ankleBoots: 'd6b1c4a7-3e82-4f95-8a6d-2c9e5b1f7a38',
+  leatherTote: '1e9d3b6f-5a27-4c83-9d1e-7b4f2a8c6e59',
+  suedeOxfords: '8f2c6a1e-4d79-4b28-8e5c-3a1f9d7b2c64',
+  pendantNecklace: 'a1c7e3b9-8f52-4a67-9c2d-5e8b1f4a3d70',
+  silkBlouse: '4d8b2f6c-1a95-4e37-8b4a-9c6e2d5f1b83',
+} as const;
+
 const categoryRows = [
-  { id: 'outerwear', name: 'Outerwear', sortOrder: 0 },
-  { id: 'knitwear', name: 'Knitwear', sortOrder: 1 },
-  { id: 'footwear', name: 'Footwear', sortOrder: 2 },
-  { id: 'accessories', name: 'Accessories', sortOrder: 3 },
-  { id: 'ready-to-wear', name: 'Ready-to-Wear', sortOrder: 4 },
+  { id: categoryIds.outerwear, name: 'Outerwear', sortOrder: 0 },
+  { id: categoryIds.knitwear, name: 'Knitwear', sortOrder: 1 },
+  { id: categoryIds.footwear, name: 'Footwear', sortOrder: 2 },
+  { id: categoryIds.accessories, name: 'Accessories', sortOrder: 3 },
+  { id: categoryIds.readyToWear, name: 'Ready-to-Wear', sortOrder: 4 },
 ];
 
 type ProductRow = {
   id: string;
+  slug: string;
   name: string;
   categoryId: string;
   priceCents: number;
@@ -38,9 +62,10 @@ type ProductRow = {
 // split the homepage used to get from `products.slice(0, 4)` / `slice(4, 8)`.
 const productRows: ProductRow[] = [
   {
-    id: 'wool-coat',
+    id: productIds.woolCoat,
+    slug: 'wool-coat',
     name: 'Structured Wool Coat',
-    categoryId: 'outerwear',
+    categoryId: categoryIds.outerwear,
     priceCents: 240000,
     stock: 6,
     imageUrl:
@@ -57,9 +82,10 @@ const productRows: ProductRow[] = [
     sortOrder: 0,
   },
   {
-    id: 'bomber-jacket',
+    id: productIds.bomberJacket,
+    slug: 'bomber-jacket',
     name: 'Leather Bomber Jacket',
-    categoryId: 'outerwear',
+    categoryId: categoryIds.outerwear,
     priceCents: 145000,
     stock: 0,
     imageUrl:
@@ -76,9 +102,10 @@ const productRows: ProductRow[] = [
     sortOrder: 1,
   },
   {
-    id: 'fringe-poncho',
+    id: productIds.fringePoncho,
+    slug: 'fringe-poncho',
     name: 'Cream Fringe Poncho',
-    categoryId: 'knitwear',
+    categoryId: categoryIds.knitwear,
     priceCents: 62000,
     stock: 2,
     imageUrl:
@@ -94,9 +121,10 @@ const productRows: ProductRow[] = [
     sortOrder: 2,
   },
   {
-    id: 'ankle-boots',
+    id: productIds.ankleBoots,
+    slug: 'ankle-boots',
     name: 'Leather Ankle Boots',
-    categoryId: 'footwear',
+    categoryId: categoryIds.footwear,
     priceCents: 98000,
     stock: 11,
     imageUrl:
@@ -113,9 +141,10 @@ const productRows: ProductRow[] = [
     sortOrder: 3,
   },
   {
-    id: 'leather-tote',
+    id: productIds.leatherTote,
+    slug: 'leather-tote',
     name: 'Structured Leather Tote',
-    categoryId: 'accessories',
+    categoryId: categoryIds.accessories,
     priceCents: 129000,
     stock: 4,
     imageUrl:
@@ -132,9 +161,10 @@ const productRows: ProductRow[] = [
     sortOrder: 4,
   },
   {
-    id: 'suede-oxfords',
+    id: productIds.suedeOxfords,
+    slug: 'suede-oxfords',
     name: 'Suede Oxford Shoes',
-    categoryId: 'footwear',
+    categoryId: categoryIds.footwear,
     priceCents: 86000,
     stock: 3,
     imageUrl:
@@ -151,9 +181,10 @@ const productRows: ProductRow[] = [
     sortOrder: 5,
   },
   {
-    id: 'pendant-necklace',
+    id: productIds.pendantNecklace,
+    slug: 'pendant-necklace',
     name: 'Gold Pendant Necklace',
-    categoryId: 'accessories',
+    categoryId: categoryIds.accessories,
     priceCents: 34000,
     stock: 14,
     imageUrl:
@@ -170,9 +201,10 @@ const productRows: ProductRow[] = [
     sortOrder: 6,
   },
   {
-    id: 'silk-blouse',
+    id: productIds.silkBlouse,
+    slug: 'silk-blouse',
     name: 'Silk Chiffon Blouse',
-    categoryId: 'ready-to-wear',
+    categoryId: categoryIds.readyToWear,
     priceCents: 78000,
     stock: 1,
     imageUrl:
@@ -208,6 +240,7 @@ async function seed() {
     .onConflictDoUpdate({
       target: products.id,
       set: {
+        slug: sql`excluded.slug`,
         name: sql`excluded.name`,
         categoryId: sql`excluded.category_id`,
         priceCents: sql`excluded.price_cents`,

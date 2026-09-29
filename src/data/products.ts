@@ -10,7 +10,10 @@ import { categories, products } from '@/db/schema';
 export type ProductDetail = { label: string; value: string };
 
 export type Product = {
+  /** Primary key, a uuid. Used as the React key; never as a URL. */
   id: string;
+  /** URL segment — the storefront links to /products/<slug>. */
+  slug: string;
   name: string;
   /** FK to categories.id — ranks the related rail. */
   categoryId: string;
@@ -30,6 +33,7 @@ export type Product = {
 // model cannot drift apart: `category` is the joined label, not a products column.
 const productColumns = {
   id: products.id,
+  slug: products.slug,
   name: products.name,
   categoryId: products.categoryId,
   category: categories.name,
@@ -76,27 +80,27 @@ export function getBestSellers(limit = 4): Promise<Product[]> {
  * Memoized with React's `cache`, so `generateMetadata` and the page share one
  * query per request instead of reading the same row twice.
  */
-export const getProductById = cache(
-  async (id: string): Promise<Product | undefined> => {
+export const getProductBySlug = cache(
+  async (slug: string): Promise<Product | undefined> => {
     const [product] = await db
       .select(productColumns)
       .from(products)
       .innerJoin(categories, eq(products.categoryId, categories.id))
-      .where(eq(products.id, id))
+      .where(eq(products.slug, slug))
       .limit(1);
 
     return product;
   },
 );
 
-/** Every id in the catalog — the input for `generateStaticParams`. */
-export async function getProductIds(): Promise<string[]> {
+/** Every slug in the catalog — the input for `generateStaticParams`. */
+export async function getProductSlugs(): Promise<string[]> {
   const rows = await db
-    .select({ id: products.id })
+    .select({ slug: products.slug })
     .from(products)
     .orderBy(asc(products.sortOrder), asc(products.id));
 
-  return rows.map((row) => row.id);
+  return rows.map((row) => row.slug);
 }
 
 /**
@@ -106,17 +110,17 @@ export async function getProductIds(): Promise<string[]> {
  * matching category on top.
  */
 export async function getRelatedProducts(
-  id: string,
+  slug: string,
   limit = 4,
 ): Promise<Product[]> {
-  const current = await getProductById(id);
+  const current = await getProductBySlug(slug);
   if (!current) return [];
 
   return db
     .select(productColumns)
     .from(products)
     .innerJoin(categories, eq(products.categoryId, categories.id))
-    .where(ne(products.id, id))
+    .where(ne(products.slug, slug))
     .orderBy(
       sql`${products.categoryId} = ${current.categoryId} desc`,
       asc(products.sortOrder),

@@ -7,6 +7,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uuid,
   varchar,
 } from 'drizzle-orm/pg-core';
 
@@ -14,8 +15,7 @@ import {
 export type ProductDetail = { label: string; value: string };
 
 export const categories = pgTable('categories', {
-  /** URL-safe key, e.g. 'outerwear'. */
-  id: text('id').primaryKey(),
+  id: uuid('id').primaryKey().defaultRandom(),
   /** Display label shown on cards and breadcrumbs, e.g. 'Outerwear'. */
   name: varchar('name', { length: 120 }).notNull().unique(),
   /** Editorial order for category rails. */
@@ -26,10 +26,15 @@ export const categories = pgTable('categories', {
 export const products = pgTable(
   'products',
   {
-    /** URL slug — the storefront links to /products/<id>. */
-    id: text('id').primaryKey(),
+    id: uuid('id').primaryKey().defaultRandom(),
+    /**
+     * URL slug — the storefront links to /products/<slug>, so the public URL
+     * survives an id change and stays readable. Unique, so it is the natural
+     * lookup key for a single piece.
+     */
+    slug: varchar('slug', { length: 120 }).notNull().unique(),
     name: varchar('name', { length: 200 }).notNull(),
-    categoryId: text('category_id')
+    categoryId: uuid('category_id')
       .notNull()
       // Restrict rather than cascade: deleting a category that still holds pieces
       // should fail loudly instead of quietly emptying the catalog.

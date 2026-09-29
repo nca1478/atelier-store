@@ -3,8 +3,8 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import {
-  getProductById,
-  getProductIds,
+  getProductBySlug,
+  getProductSlugs,
   getRelatedProducts,
 } from "@/data/products";
 import { formatPrice } from "@/lib/format";
@@ -13,20 +13,20 @@ import { StockStatus } from "@/components/stock-status";
 import { ValueStrip } from "@/components/value-strip";
 
 // Prerendered at build from the database, then refreshed in the background at
-// most once a minute. Ids that appear in the catalog later are rendered on
+// most once a minute. Slugs that appear in the catalog later are rendered on
 // demand and cached, so a new piece does not need a rebuild.
 export const revalidate = 60;
 
 export async function generateStaticParams() {
-  const ids = await getProductIds();
-  return ids.map((id) => ({ id }));
+  const slugs = await getProductSlugs();
+  return slugs.map((slug) => ({ slug }));
 }
 
 export async function generateMetadata(
-  props: PageProps<"/products/[id]">,
+  props: PageProps<"/products/[slug]">,
 ): Promise<Metadata> {
-  const { id } = await props.params;
-  const product = await getProductById(id);
+  const { slug } = await props.params;
+  const product = await getProductBySlug(slug);
 
   if (!product) {
     return { title: "Not found — Atelier" };
@@ -38,15 +38,17 @@ export async function generateMetadata(
   };
 }
 
-export default async function ProductPage(props: PageProps<"/products/[id]">) {
-  const { id } = await props.params;
-  const product = await getProductById(id);
+export default async function ProductPage(
+  props: PageProps<"/products/[slug]">,
+) {
+  const { slug } = await props.params;
+  const product = await getProductBySlug(slug);
 
   if (!product) {
     notFound();
   }
 
-  const related = await getRelatedProducts(product.id);
+  const related = await getRelatedProducts(product.slug);
 
   return (
     <main className="flex-1">

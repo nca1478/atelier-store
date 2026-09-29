@@ -42,20 +42,24 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
   **requires a reachable database**.
   - `page.tsx` — the homepage: hero, collections, New Arrivals / Best Sellers product grids, editorial
     banner, newsletter.
-  - `products/[id]/page.tsx` — product detail. Prerenders every catalog entry via `generateStaticParams`
-    (async, reads ids from the database), sets per-product metadata, and calls `notFound()` for an unknown id.
-    Ids added to the catalog later render on demand and are cached, so they need no rebuild.
+  - `products/[slug]/page.tsx` — product detail. Prerenders every catalog entry via `generateStaticParams`
+    (async, reads slugs from the database), sets per-product metadata, and calls `notFound()` for an unknown
+    slug. Slugs added to the catalog later render on demand and are cached, so they need no rebuild. The
+    param is the **slug**, not the primary key: `products.id` is a uuid and never appears in a URL.
   - `not-found.tsx` — styled 404, rendered inside the root layout so it keeps the site chrome.
   - `layout.tsx` — root layout. Mounts `SiteHeader` and `SiteFooter` around `{children}`, so **every route
     gets the site chrome for free**; don't re-render header/footer inside a page.
 - **`src/data/products.ts`** — the catalog queries, and the only place the storefront reads product data.
   Every function returns the `Product` view model (`priceCents`, `category` as the joined label, `stock` —
-  `0` means sold out) so components never see a join or a database column. `getProductById` is wrapped in
-  React's `cache` so `generateMetadata` and the page share one query per request. `collections` also lives
-  here but is *marketing* copy, not catalog data: its tiles don't map to rows in `categories`.
+  `0` means sold out) so components never see a join or a database column. Lookups are by `slug`
+  (`getProductBySlug`), since that is what the route carries: the view model exposes both `id` (uuid, for
+  React keys) and `slug` (for links), and only `product-card.tsx` should be building a product URL.
+  `getProductBySlug` is wrapped in React's `cache` so `generateMetadata` and the page share one query per
+  request. `collections` also lives here but is *marketing* copy, not catalog data: its tiles don't map to
+  rows in `categories`.
 - **`src/components/`** — one component per file. `site-header.tsx`, `site-footer.tsx` and `value-strip.tsx`
-  are the shared chrome; `product-card.tsx` is the catalog tile (links to `/products/[id]`) and is reused by
-  the homepage grids and the related-pieces rail; `stock-status.tsx` holds the single low-stock threshold.
+  are the shared chrome; `product-card.tsx` is the catalog tile (links to `/products/<slug>`) and is reused
+  by the homepage grids and the related-pieces rail; `stock-status.tsx` holds the single low-stock threshold.
 - **`src/lib/format.ts`** — `formatPrice`, the shared `Intl.NumberFormat`. It takes **cents** (the stored
   unit), so pass `product.priceCents` straight through. Import it rather than creating another formatter.
 - **`src/db/`** — Drizzle ORM setup.
@@ -65,12 +69,15 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
     evaluates every route module (see Environment variables).
   - `schema/` — one file per table domain, re-exported through `schema/index.ts`. `users.ts` defines the four
     Better Auth tables: `users`, `sessions`, `accounts`, `verifications`. `catalog.ts` defines `categories`
-    and `products`: a product belongs to one category (`category_id`, `onDelete: 'restrict'`), prices are
-    stored as `price_cents` integers, and `stock`/`price_cents` are guarded by `CHECK (... >= 0)`.
-    `details` is `jsonb` because its order is meaningful and nothing queries by label. Add new tables as
-    sibling files and re-export them from `index.ts`.
-  - `seed.ts` — upserts the sample catalog. Run through `tsx`, not plain `node`: Node's native type stripping
-    needs explicit extensions on relative imports and the schema barrel's `export * from './users'` has none.
+    and `products`: both use `uuid` primary keys with `defaultRandom()`, a product belongs to one category
+    (`category_id`, also uuid, `onDelete: 'restrict'`), prices are stored as `price_cents` integers, and
+    `stock`/`price_cents` are guarded by `CHECK (... >= 0)`. `products.slug` is the unique, human-readable
+    key the storefront links to. `details` is `jsonb` because its order is meaningful and nothing queries by
+    label. Add new tables as sibling files and re-export them from `index.ts`.
+  - `seed.ts` — upserts the sample catalog. Ids are **hardcoded uuids**, not `randomUUID()` calls: the upsert
+    is keyed on them, so generated ids would insert a fresh catalog on every run instead of updating the
+    existing rows. Run through `tsx`, not plain `node`: Node's native type stripping needs explicit
+    extensions on relative imports and the schema barrel's `export * from './users'` has none.
   - `src/lib/db.ts` re-exports `db`/`DB` from `src/db/connection.ts` for app code to import.
   - `drizzle.config.ts` points at `src/db/schema/*` and outputs migrations to `./drizzle`; it loads
     `.env` itself via `dotenv/config`, so `DATABASE_URL` is available to `drizzle-kit` without exporting it.

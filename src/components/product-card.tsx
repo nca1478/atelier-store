@@ -4,7 +4,7 @@ import { formatPrice } from "@/lib/format";
 import type { Product } from "@/data/products";
 
 export function ProductCard({ product }: { product: Product }) {
-  const href = `/products/${product.id}`;
+  const href = `/products/${product.slug}`;
 
   return (
     <article className="card">
