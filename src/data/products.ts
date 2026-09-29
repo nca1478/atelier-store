@@ -3,7 +3,7 @@
 // comes from a join rather than the static array this module used to hold.
 
 import { cache } from "react";
-import { asc, eq, ne, sql } from "drizzle-orm";
+import { asc, desc, eq, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { categories, products } from "@/db/schema";
 
@@ -58,6 +58,28 @@ export async function getProducts(
 /** New Arrivals rail: the first `limit` pieces in editorial order. */
 export function getNewArrivals(limit = 4): Promise<Product[]> {
   return getProducts({ limit });
+}
+
+/**
+ * The catalog by recency, newest first — what the New Arrivals page lists, and
+ * the only query here that is not editorial order.
+ *
+ * `createdAt` on its own does not sort the seeded catalog: `seed.ts` inserts
+ * every row in one statement, so they all share a timestamp and the tie-break
+ * on `sortOrder` is what produces the editorial order the homepage shows. A
+ * piece added to the catalog later therefore leads this list.
+ */
+export async function getLatestProducts(limit = 12): Promise<Product[]> {
+  return db
+    .select(productColumns)
+    .from(products)
+    .innerJoin(categories, eq(products.categoryId, categories.id))
+    .orderBy(
+      desc(products.createdAt),
+      asc(products.sortOrder),
+      asc(products.id),
+    )
+    .limit(limit);
 }
 
 /**

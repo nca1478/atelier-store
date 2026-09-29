@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 import { collections, getBestSellers, getNewArrivals } from "@/data/products";
 import { ProductCard } from "@/components/product-card";
 import { ValueStrip } from "@/components/value-strip";
@@ -107,9 +108,9 @@ export default async function Home() {
               <span className="label-caps text-stone">Just In</span>
               <h2 className="text-3xl">New Arrivals</h2>
             </div>
-            <a className="link text-sm" href="#">
+            <Link className="link text-sm" href="/new-arrivals">
               View all
-            </a>
+            </Link>
           </div>
           <div className="grid grid-cols-2 gap-x-6 gap-y-10 sm:grid-cols-3 lg:grid-cols-4">
             {newArrivals.map((product) => (

@@ -4,7 +4,7 @@ const shopLinks = [
   { href: "/#women", label: "Women" },
   { href: "/#men", label: "Men" },
   { href: "/#accessories", label: "Accessories" },
-  { href: "/#new-arrivals", label: "New Arrivals" },
+  { href: "/new-arrivals", label: "New Arrivals" },
 ];
 
 const helpLinks = ["Shipping", "Returns", "Size Guide", "Contact"];
