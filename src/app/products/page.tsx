@@ -10,6 +10,7 @@ import {
 import { ProductCard } from "@/components/product-card";
 import { SortSelect } from "@/components/sort-select";
 import { ValueStrip } from "@/components/value-strip";
+import { firstParam } from "@/lib/search-params";
 
 const sortLabels: Record<ProductSort, string> = {
   featured: "Featured",
@@ -25,15 +26,6 @@ function chipClass(current: boolean): string {
       ? "border-ink text-ink"
       : "border-transparent text-stone hover:text-ink"
   }`;
-}
-
-/**
- * `searchParams` values arrive as `string | string[]`. The listing only ever
- * reads the first, so a repeated param (`?category=a&category=b`) is ignored
- * rather than treated as an error.
- */
-function param(value: string | string[] | undefined): string | undefined {
-  return Array.isArray(value) ? value[0] : value;
 }
 
 /**
@@ -68,7 +60,7 @@ export async function generateMetadata(
   props: PageProps<"/products">,
 ): Promise<Metadata> {
   const { category } = await props.searchParams;
-  const active = await findCategory(param(category));
+  const active = await findCategory(firstParam(category));
 
   return {
     title: active ? `${active.name} — Atelier` : "Shop — Atelier",
@@ -84,8 +76,8 @@ export async function generateMetadata(
 export default async function ProductsPage(props: PageProps<"/products">) {
   const { category: categoryParam, sort: sortParam } = await props.searchParams;
 
-  const slug = param(categoryParam);
-  const sort = parseProductSort(param(sortParam));
+  const slug = firstParam(categoryParam);
+  const sort = parseProductSort(firstParam(sortParam));
 
   const [allCategories, products] = await Promise.all([
     getCategories(),

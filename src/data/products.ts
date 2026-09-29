@@ -3,7 +3,7 @@
 // comes from a join rather than the static array this module used to hold.
 
 import { cache } from "react";
-import { asc, desc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, ne, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { categories, products } from "@/db/schema";
 
@@ -153,6 +153,79 @@ export async function getProductListing(
     .innerJoin(categories, eq(products.categoryId, categories.id))
     .where(match ? eq(products.categoryId, match.id) : undefined)
     .orderBy(...listingOrder(sort))
+    .limit(limit);
+}
+
+/**
+ * The query is bounded rather than unbounded: only the first few words are
+ * required, so a pasted sentence runs as "the first six words, all present"
+ * instead of an AND of thirty conditions. Terms arrive in the order they were
+ * typed, which is the order a shopper narrows in.
+ */
+const SEARCH_TERM_LIMIT = 6;
+
+/**
+ * `%` and `_` are LIKE syntax, not text: someone typing "50%" means the literal
+ * characters, and an unescaped pattern would match the whole catalog. Postgres
+ * reads `\` as the LIKE escape character by default, and the pattern is bound as
+ * a parameter rather than interpolated, so the backslash survives intact.
+ */
+function searchPattern(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+}
+
+/**
+ * Free-text search over the fields a shopper can actually see: the piece's
+ * name, its category, and its description. Multi-word queries are ANDed term by
+ * term — every word has to appear somewhere — which is what lets "coat wool"
+ * find the Structured Wool Coat that a whole-phrase match would miss.
+ *
+ * Matching is `ILIKE` over sequential scans, which is deliberately the simple
+ * thing at this catalog size; a `pg_trgm` index is the change to make if the
+ * catalog ever grows enough for that to show.
+ */
+export async function searchProducts(
+  query: string,
+  options: { limit?: number } = {},
+): Promise<Product[]> {
+  const { limit = 100 } = options;
+
+  const terms = query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, SEARCH_TERM_LIMIT);
+
+  // An empty box (`?q=`, whitespace) is a question the catalog cannot answer:
+  // return nothing rather than the whole catalog dressed up as results.
+  if (terms.length === 0) return [];
+
+  const matches = terms.map((term) => {
+    const pattern = searchPattern(term);
+    return or(
+      ilike(products.name, pattern),
+      ilike(categories.name, pattern),
+      ilike(products.description, pattern),
+    );
+  });
+
+  // Best match first: a piece whose *name* contains what was typed, then one
+  // whose category does, then a description-only hit — so "coat" leads with the
+  // coats rather than with the poncho that mentions one. Ties fall back to
+  // editorial order, which keeps the result list stable for the same query.
+  const phrase = searchPattern(query.trim().toLowerCase());
+  const relevance = sql`case
+    when ${products.name} ilike ${phrase} then 0
+    when ${categories.name} ilike ${phrase} then 1
+    else 2
+  end`;
+
+  return db
+    .select(productColumns)
+    .from(products)
+    .innerJoin(categories, eq(products.categoryId, categories.id))
+    .where(and(...matches))
+    .orderBy(relevance, asc(products.sortOrder), asc(products.id))
     .limit(limit);
 }
 

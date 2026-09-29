@@ -18,6 +18,11 @@ export function SiteHeader() {
               Menu
             </summary>
             <nav className="divider absolute left-0 top-[calc(100%+1.25rem)] z-30 flex w-48 flex-col gap-4 bg-paper p-6 shadow-sm">
+              {/* Search is a field-width control on desktop, so on phones it
+                  only has a home in here. */}
+              <Link className="link-nav" href="/search">
+                Search
+              </Link>
               {navLinks.map((link) => (
                 <Link key={link.href} className="link-nav" href={link.href}>
                   {link.label}
@@ -37,9 +42,9 @@ export function SiteHeader() {
           ))}
         </nav>
         <div className="flex items-center gap-6">
-          <a className="link-nav hidden sm:inline" href="#">
+          <Link className="link-nav hidden sm:inline" href="/search">
             Search
-          </a>
+          </Link>
           <a className="link-nav" href="#">
             Bag (0)
           </a>
