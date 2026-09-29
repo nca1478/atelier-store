@@ -1,16 +1,14 @@
 import Image from "next/image";
+import Link from "next/link";
+import { formatPrice } from "@/lib/format";
 import type { Product } from "@/data/products";
 
-const currency = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 0,
-});
-
 export function ProductCard({ product }: { product: Product }) {
+  const href = `/products/${product.id}`;
+
   return (
     <article className="card">
-      <a className="card-media" href="#">
+      <Link className="card-media" href={href}>
         <Image
           src={product.image}
           alt={product.alt}
@@ -18,14 +16,14 @@ export function ProductCard({ product }: { product: Product }) {
           sizes="(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw"
           className="object-cover"
         />
-      </a>
+      </Link>
       <div className="flex flex-col gap-1">
         <span className="label-caps text-stone">{product.category}</span>
-        <a className="link text-base font-medium" href="#">
+        <Link className="link text-base font-medium" href={href}>
           {product.name}
-        </a>
+        </Link>
         <span className="text-sm text-ink-soft">
-          {currency.format(product.price)}
+          {formatPrice(product.price)}
         </span>
       </div>
     </article>

@@ -6,6 +6,10 @@ import { users, sessions, accounts, verifications } from '@/db/schema';
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
     provider: 'pg',
+    // The schema keys are plural ("users", not "user"), so Better Auth has to look up
+    // `<model>s` when resolving tables. Without this it reports a schema mismatch and
+    // every model lookup misses.
+    usePlural: true,
     schema: {
       users,
       sessions,
