@@ -156,9 +156,9 @@ export default async function Home() {
               <span className="label-caps text-stone">Most Loved</span>
               <h2 className="text-3xl">Best Sellers</h2>
             </div>
-            <a className="link text-sm" href="#">
+            <Link className="link text-sm" href="/products">
               View all
-            </a>
+            </Link>
           </div>
           <div className="grid grid-cols-2 gap-x-6 gap-y-10 sm:grid-cols-3 lg:grid-cols-4">
             {bestSellers.map((product) => (

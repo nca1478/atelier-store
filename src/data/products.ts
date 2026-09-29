@@ -60,6 +60,102 @@ export function getNewArrivals(limit = 4): Promise<Product[]> {
   return getProducts({ limit });
 }
 
+export type Category = {
+  id: string;
+  name: string;
+  /** URL form of the name — `Ready-to-Wear` → `ready-to-wear`. */
+  slug: string;
+};
+
+/**
+ * Categories have no slug column: `name` is the unique, human-readable key, so
+ * the listing derives the URL form from it rather than putting a uuid in a
+ * query string. Both directions go through this one function so the link and
+ * the lookup can never disagree.
+ */
+export function categorySlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+/**
+ * Memoized like `getProductBySlug`: the listing page reads categories for the
+ * filter row and again to resolve the active one, and `getProductListing` reads
+ * them a third time to turn a slug into an id — all one query per request.
+ */
+export const getCategories = cache(async (): Promise<Category[]> => {
+  const rows = await db
+    .select({ id: categories.id, name: categories.name })
+    .from(categories)
+    .orderBy(asc(categories.sortOrder), asc(categories.name));
+
+  return rows.map((row) => ({ ...row, slug: categorySlug(row.name) }));
+});
+
+/** Display order of the listing's sort control — the union's source of truth. */
+export const productSorts = [
+  "featured",
+  "newest",
+  "price-asc",
+  "price-desc",
+] as const;
+
+export type ProductSort = (typeof productSorts)[number];
+
+/** Anything unrecognised in the URL falls back to the editorial order. */
+export function parseProductSort(value: string | undefined): ProductSort {
+  return productSorts.find((sort) => sort === value) ?? "featured";
+}
+
+/** Every ordering keeps `sortOrder` then `id` as tie-breaks, so it is stable. */
+function listingOrder(sort: ProductSort) {
+  switch (sort) {
+    case "newest":
+      return [
+        desc(products.createdAt),
+        asc(products.sortOrder),
+        asc(products.id),
+      ];
+    case "price-asc":
+      return [
+        asc(products.priceCents),
+        asc(products.sortOrder),
+        asc(products.id),
+      ];
+    case "price-desc":
+      return [
+        desc(products.priceCents),
+        asc(products.sortOrder),
+        asc(products.id),
+      ];
+    default:
+      return [asc(products.sortOrder), asc(products.id)];
+  }
+}
+
+/**
+ * The listing page's query. `category` is a category *slug*, not an id — an
+ * unknown slug (a hand-edited URL, a category that has been renamed) filters
+ * nothing rather than erroring, so the page falls back to the full catalog.
+ */
+export async function getProductListing(
+  options: { category?: string; sort?: ProductSort; limit?: number } = {},
+): Promise<Product[]> {
+  const { category, sort = "featured", limit = 100 } = options;
+  const allCategories = await getCategories();
+  const match = allCategories.find((item) => item.slug === category);
+
+  return db
+    .select(productColumns)
+    .from(products)
+    .innerJoin(categories, eq(products.categoryId, categories.id))
+    .where(match ? eq(products.categoryId, match.id) : undefined)
+    .orderBy(...listingOrder(sort))
+    .limit(limit);
+}
+
 /**
  * The catalog by recency, newest first — what the New Arrivals page lists, and
  * the only query here that is not editorial order.

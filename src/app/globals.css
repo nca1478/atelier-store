@@ -336,6 +336,28 @@
     border-color: var(--color-ink);
   }
 
+  /* Sibling of .input sized for a toolbar rather than a form: the listing's
+     sort control. Square, hairline, uppercase micro-copy — the same weight as
+     the filter links it sits beside. */
+  .select {
+    height: 2.75rem;
+    padding-inline: 0.75rem;
+    background: var(--color-paper);
+    border: var(--border-hairline) solid var(--color-line);
+    border-radius: var(--radius-none);
+    color: var(--color-ink);
+    font-size: var(--text-2xs);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-widest);
+    transition: border-color var(--duration-fast) var(--ease-editorial);
+  }
+
+  .select:hover,
+  .select:focus {
+    outline: none;
+    border-color: var(--color-ink);
+  }
+
   /* Card / product tile ---------------------------------------------------
      No shadow, no radius on the media block — separation comes from
      whitespace and a hairline border only where content needs grouping. */

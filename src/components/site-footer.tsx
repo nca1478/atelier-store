@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 const shopLinks = [
+  { href: "/products", label: "Shop All" },
   { href: "/#women", label: "Women" },
   { href: "/#men", label: "Men" },
   { href: "/#accessories", label: "Accessories" },
