@@ -2,35 +2,27 @@
 // view model the storefront renders, so components stay unaware that the data
 // comes from a join rather than the static array this module used to hold.
 
-import { cache } from 'react';
-import { asc, eq, ne, sql } from 'drizzle-orm';
-import { db } from '@/lib/db';
-import { categories, products } from '@/db/schema';
+import { cache } from "react";
+import { asc, eq, ne, sql } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { categories, products } from "@/db/schema";
 
 export type ProductDetail = { label: string; value: string };
 
 export type Product = {
-  /** Primary key, a uuid. Used as the React key; never as a URL. */
   id: string;
-  /** URL segment — the storefront links to /products/<slug>. */
   slug: string;
   name: string;
-  /** FK to categories.id — ranks the related rail. */
   categoryId: string;
-  /** categories.name — the label shown on cards and breadcrumbs. */
   category: string;
-  /** Whole cents; see `formatPrice`. */
   priceCents: number;
   image: string;
   alt: string;
   description: string;
   details: ProductDetail[];
-  /** Units on hand. 0 means the piece is sold out. */
   stock: number;
 };
 
-// One select list for every query below, so the SQL projection and the view
-// model cannot drift apart: `category` is the joined label, not a products column.
 const productColumns = {
   id: products.id,
   slug: products.slug,
