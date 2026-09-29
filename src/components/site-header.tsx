@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AccountLink } from "@/components/account-link";
 
 const navLinks = [
   { href: "/products", label: "Shop" },
@@ -45,6 +46,8 @@ export function SiteHeader() {
           <Link className="link-nav hidden sm:inline" href="/search">
             Search
           </Link>
+          {/* Client-side session read — see account-link.tsx for why. */}
+          <AccountLink />
           <a className="link-nav" href="#">
             Bag (0)
           </a>

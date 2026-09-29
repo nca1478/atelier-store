@@ -6,6 +6,11 @@ export const users = pgTable('users', {
   name: varchar('name', { length: 255 }),
   emailVerified: boolean('email_verified').default(false),
   image: text('image'),
+  // 'user' or 'admin'. Better Auth is told about this column as an additional
+  // field it must not accept from a client (see src/auth/config.ts), so signing
+  // up can only ever produce 'user' — the default here backstops it. The two
+  // ways to reach 'admin' are src/db/seed-admin.ts and a manual UPDATE.
+  role: varchar('role', { length: 50 }).default('user').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });

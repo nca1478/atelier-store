@@ -8,8 +8,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A Next.js 16 (App Router, Turbopack) storefront for a fashion label. The front end is built out — homepage,
 product detail pages, shared site chrome — and reads its catalog from Postgres through Drizzle ORM.
-Authentication (Better Auth) is wired up. There is still no commerce backend, cart, or checkout: the catalog
-is read-only and `src/db/seed.ts` is the only write path.
+Authentication (Better Auth) is usable: email/password sign-up, sign-in and sign-out, sessions stored in
+Postgres, `/account` behind a session guard, and `/admin` behind a `role` column. Social login, password
+reset, email verification and 2FA are deliberately absent. There is still no commerce backend, cart, or
+checkout: the catalog is read-only, and `src/db/seed.ts` / `src/db/seed-admin.ts` are the only write paths.
 
 ## Commands
 
@@ -23,6 +25,7 @@ npm run db:generate   # generate SQL migrations from src/db/schema/* (drizzle-ki
 npm run db:push        # push schema directly to the database (no migration files)
 npm run db:migrate      # apply generated migrations
 npm run db:seed          # upsert the sample catalog (tsx, idempotent)
+npm run db:seed:admin     # create/promote the first admin (needs ADMIN_EMAIL/ADMIN_PASSWORD)
 npm run db:studio        # open Drizzle Studio
 
 npx next typegen        # regenerate PageProps/LayoutProps route types
@@ -49,6 +52,15 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
   - `not-found.tsx` — styled 404, rendered inside the root layout so it keeps the site chrome.
   - `layout.tsx` — root layout. Mounts `SiteHeader` and `SiteFooter` around `{children}`, so **every route
     gets the site chrome for free**; don't re-render header/footer inside a page.
+  - `sign-in/page.tsx`, `sign-up/page.tsx` — the auth forms. Both read `searchParams.next` through
+    `safeNextPath` (`src/lib/next-path.ts`) and redirect to `/account` when a session already exists.
+  - `account/page.tsx` — calls `requireUser()`; shows name, email, a sign-out button, and an admin link when
+    the role warrants one.
+  - `admin/page.tsx` — calls `requireAdmin()`; renders the "not authorized" panel when it returns `null`.
+  - Unlike the catalog routes, these four are `ƒ` (dynamic) — they read cookies or `searchParams`. That is
+    expected: `next build` should still report `/`, `/new-arrivals` and `/products/[slug]` as static/SSG. If
+    they ever flip to dynamic, something in the shared chrome started reading the session on the server; see
+    the `account-link.tsx` note under `src/components/`.
 - **`src/data/products.ts`** — the catalog queries, and the only place the storefront reads product data.
   Every function returns the `Product` view model (`priceCents`, `category` as the joined label, `stock` —
   `0` means sold out) so components never see a join or a database column. Lookups are by `slug`
@@ -60,6 +72,13 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
 - **`src/components/`** — one component per file. `site-header.tsx`, `site-footer.tsx` and `value-strip.tsx`
   are the shared chrome; `product-card.tsx` is the catalog tile (links to `/products/<slug>`) and is reused
   by the homepage grids and the related-pieces rail; `stock-status.tsx` holds the single low-stock threshold.
+  `auth-form.tsx` is the one Client Component behind both `/sign-in` and `/sign-up` (`mode` prop — splitting
+  it in two would duplicate the form), `sign-out-button.tsx` signs out then refreshes, and `account-link.tsx`
+  is the header's account/sign-in link.
+  `account-link.tsx` **must stay client-side**. `SiteHeader` renders from the root layout, so reading the
+  session there with `headers()`/`cookies()` would opt *every* route into dynamic rendering and cost the
+  catalog its `revalidate = 60` prerendering. It uses `useSession()` instead, and renders an invisible
+  placeholder while pending so the header doesn't jump.
 - **`src/lib/format.ts`** — `formatPrice`, the shared `Intl.NumberFormat`. It takes **cents** (the stored
   unit), so pass `product.priceCents` straight through. Import it rather than creating another formatter.
 - **`src/db/`** — Drizzle ORM setup.
@@ -68,7 +87,9 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
     and `db` is a proxy that only connects when something queries it — keep it that way, since `next build`
     evaluates every route module (see Environment variables).
   - `schema/` — one file per table domain, re-exported through `schema/index.ts`. `users.ts` defines the four
-    Better Auth tables: `users`, `sessions`, `accounts`, `verifications`. `catalog.ts` defines `categories`
+    Better Auth tables: `users`, `sessions`, `accounts`, `verifications`. `users.role` is a plain
+    `varchar(50)` defaulting to `'user'` — a column of our own, **not** Better Auth's `admin` plugin — and it
+    is what `/admin` checks. `catalog.ts` defines `categories`
     and `products`: both use `uuid` primary keys with `defaultRandom()`, a product belongs to one category
     (`category_id`, also uuid, `onDelete: 'restrict'`), prices are stored as `price_cents` integers, and
     `stock`/`price_cents` are guarded by `CHECK (... >= 0)`. `products.slug` is the unique, human-readable
@@ -78,6 +99,12 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
     is keyed on them, so generated ids would insert a fresh catalog on every run instead of updating the
     existing rows. Run through `tsx`, not plain `node`: Node's native type stripping needs explicit
     extensions on relative imports and the schema barrel's `export * from './users'` has none.
+  - `seed-admin.ts` — creates the first administrator, or promotes an existing account. Idempotent, same tsx
+    caveat as `seed.ts`. Reads `ADMIN_EMAIL`/`ADMIN_PASSWORD` from the environment, so it can be run without
+    touching `.env` (`ADMIN_EMAIL=… ADMIN_PASSWORD=… npm run db:seed:admin`) — `dotenv` does not overwrite
+    variables already in the environment. It calls `auth.api.signUpEmail` rather than inserting directly,
+    because that is what writes the `accounts` row in the shape sign-in later expects. It can run outside a
+    request because no plugins are registered; adding `nextCookies()` would break that.
   - `src/lib/db.ts` re-exports `db`/`DB` from `src/db/connection.ts` for app code to import.
   - `drizzle.config.ts` points at `src/db/schema/*` and outputs migrations to `./drizzle`; it loads
     `.env` itself via `dotenv/config`, so `DATABASE_URL` is available to `drizzle-kit` without exporting it.
@@ -85,7 +112,32 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
   adapter (`provider: 'pg'`) and mapped to the schema tables above. The schema keys are plural (`users`, not
   `user`), so the adapter needs `usePlural: true`; without it Better Auth logs a `Drizzle schema mismatch` and
   every model lookup misses. Email/password auth is enabled; GitHub and Google social providers are
-  configured via env vars. Exports inferred `Session`/`User` types via `auth.$Infer`.
+  configured via env vars. Exports inferred `Session`/`User` types via `auth.$Infer`. Three settings here are
+  load-bearing and easy to undo by accident:
+  - `advanced.database.generateId: 'uuid'`. Better Auth otherwise invents a 32-character nanoid for every
+    primary key, which Postgres rejects for the `uuid` columns in `schema/users.ts` — the columns' own
+    `defaultRandom()` never runs, because the id is supplied explicitly. Dropping this breaks **sign-up**
+    (422 `FAILED_TO_CREATE_USER`) and `db:seed:admin` with a `Failed query: insert into "users"`.
+  - `user.additionalFields.role` with `input: false`. That flag is what keeps `role` out of the sign-up and
+    update-user request bodies, so a client POSTing `{"role":"admin"}` has it stripped and gets `'user'`.
+    It is the only thing standing between the sign-up form and self-granted admin; don't relax it.
+  - `session.expiresIn` / `updateAge` — 7 days, renewed at most once a day. Sessions live in the `sessions`
+    table, so signing in survives a dev-server restart; only the cookie is client-side.
+  - Leaving `socialProviders` populated without credentials makes every process (including `next build`)
+    print `Social provider github is missing clientId or clientSecret`. Harmless noise; delete the block if
+    it gets annoying, but the plan left it untouched on purpose.
+- **`src/auth/session.ts`** — the data access layer, and the **only** place the app reads a session. Same
+  rule as `src/data/products.ts`: components never touch the Better Auth API directly. `getSession()` is
+  wrapped in React's `cache` so a page and its `generateMetadata` share one lookup. On top of it:
+  `requireUser()` — redirects to `/sign-in?next=<path>` when there is no session — and `requireAdmin()`,
+  which **returns `null`** rather than throwing when the session exists but the role isn't `admin`, so the
+  page can render an explicit "not authorized" panel. That distinction (redirect when anonymous, panel when
+  merely unauthorized) is the whole point of having a role, and `/admin` depends on it.
+- **`src/proxy.ts`** — Next 16's renamed `middleware` (it exports `proxy()`, not `middleware()`). Guards only
+  the `/account` and `/admin` prefixes, and only by **cookie presence** via `getSessionCookie` — an optimistic
+  redirect, never the authorization decision. It also stamps an `x-pathname` header, which is what
+  `requireUser()` reads to build `?next=`. Real authorization is the server guards in `auth/session.ts`: a
+  cookie whose session row has been deleted still gets redirected. Don't move authority into the proxy.
 - **`src/app/api/auth/[...all]/route.ts`** — mounts the Better Auth handler via `toNextJsHandler(auth)`. This
   is the only API route; don't hand-roll auth endpoints elsewhere. The segment must be a *single* directory
   named `[...all]` — splitting it into `[...all` + `]` makes Next register the literal path
@@ -101,6 +153,11 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
 See `.env.example`: `DATABASE_URL` (Postgres, required), `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and optional
 `GITHUB_CLIENT_ID`/`SECRET` and `GOOGLE_CLIENT_ID`/`SECRET` for OAuth. Add `NEXT_PUBLIC_BETTER_AUTH_URL` when
 deploying somewhere other than `localhost:3000`, since `auth-client.ts` reads it directly.
+
+`ADMIN_EMAIL`, `ADMIN_PASSWORD` (min. 8 characters) and optional `ADMIN_NAME` are read by `db:seed:admin` and
+nothing else — the app never sees them. **They are not in `.env.example` yet; add them when you first need an
+administrator.** Without them the seed script throws rather than guessing a password. `BETTER_AUTH_SECRET`
+must be at least 32 characters, or sessions cannot be signed.
 
 `DATABASE_URL` must be a real, parseable URL *by the time a query runs*: `postgres()` throws
 `ERR_INVALID_URL` on the `.env.example` placeholder (`postgresql://user:password@host:port/database`). Because

@@ -17,6 +17,33 @@ export const auth = betterAuth({
       verifications,
     },
   }),
+  user: {
+    additionalFields: {
+      // `input: false` keeps `role` out of the sign-up and update-user request
+      // bodies: a client that posts `{"role":"admin"}` gets it stripped rather
+      // than stored. `defaultValue` is what Better Auth writes on sign-up; the
+      // column default in src/db/schema/users.ts backs it at the database level.
+      role: { type: 'string', required: false, input: false, defaultValue: 'user' },
+    },
+  },
+  session: {
+    // Sessions live in the `sessions` table, so signing in survives a restart —
+    // only the cookie is client-side. Seven days, renewed at most once a day on
+    // return visits, which is why a signed-in visitor rarely meets the form
+    // again.
+    expiresIn: 60 * 60 * 24 * 7,
+    updateAge: 60 * 60 * 24,
+  },
+  advanced: {
+    database: {
+      // Better Auth invents its own primary keys, and by default that is a
+      // 32-character nanoid like `1HecjtcyfYxwmjkEcMtTYUvomCyRs4ay` — which
+      // Postgres rejects for the `uuid` columns in src/db/schema/users.ts, since
+      // Better Auth supplies the id instead of letting `defaultRandom()` run.
+      // "uuid" makes it call `crypto.randomUUID()` and the two agree again.
+      generateId: 'uuid',
+    },
+  },
   emailAndPassword: {
     enabled: true,
   },
