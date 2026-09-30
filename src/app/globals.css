@@ -429,4 +429,17 @@
   .card:hover .card-media img {
     transform: scale(1.04);
   }
+
+  /* A sold-out tile: the image recedes, and the zoom is withheld. Scaling a
+     piece up is an invitation to look closer at it, which is the wrong one to
+     offer for something that cannot be bought. The card keeps its place in the
+     grid — a sold-out piece is still a piece, and it is how the next delivery
+     gets announced. */
+  .card-sold-out .card-media img {
+    opacity: 0.55;
+  }
+
+  .card-sold-out:hover .card-media img {
+    transform: none;
+  }
 }
