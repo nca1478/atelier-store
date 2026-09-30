@@ -36,6 +36,13 @@
       "when": 1790777270958,
       "tag": "0004_lucky_carnage",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790794984536,
+      "tag": "0005_black_galactus",
+      "breakpoints": true
     }
   ]
 }

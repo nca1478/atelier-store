@@ -1,4 +1,8 @@
-// Orders, and the only module in the app that writes an order or moves stock.
+// Orders, and the only module in the app that writes an order or moves stock
+// *because of one*. `src/data/inventory.ts` is the other writer — an adjustment
+// an administrator makes by hand — and both record what they did in the
+// `inventory_movements` ledger, so the question "why is the stock 7?" has an
+// answer that is not a guess.
 //
 // Same rule as `src/data/products.ts` and `src/data/cart.ts`: the database is the
 // authority and everything else observes it. Two consequences shape this file.
@@ -20,6 +24,7 @@ import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type Stripe from "stripe";
 import { db } from "@/lib/db";
 import {
+  inventoryMovements,
   orderItems,
   orders,
   products,
@@ -195,14 +200,36 @@ async function releaseOrderHold(
       .from(orderItems)
       .where(eq(orderItems.orderId, orderId));
 
+    const movements: (typeof inventoryMovements.$inferInsert)[] = [];
+
     for (const item of held) {
-      await tx
+      // `RETURNING` reads the *new* stock, already serialized against any
+      // checkout that touched the same row, so `stockAfter` is exact for this
+      // movement rather than a read that could have raced.
+      const [restocked] = await tx
         .update(products)
         .set({
           stock: sql`${products.stock} + ${item.quantity}`,
           updatedAt: sql`now()`,
         })
-        .where(eq(products.id, item.productId));
+        .where(eq(products.id, item.productId))
+        .returning({ stock: products.stock });
+
+      movements.push({
+        productId: item.productId,
+        delta: item.quantity,
+        reason: "release",
+        orderId,
+        actorUserId: null,
+        stockAfter: restocked.stock,
+      });
+    }
+
+    // One insert for the whole hold, and behind the guard above — not beside it.
+    // A replay updates no `orders` row, so it reaches neither the restock nor
+    // this ledger; the state transition stays the single point of exactly-once.
+    if (movements.length > 0) {
+      await tx.insert(inventoryMovements).values(movements);
     }
 
     return true;
@@ -312,6 +339,8 @@ export async function createOrderForCart({
         .insert(orderItems)
         .values(items.map((item) => ({ ...item, orderId: created.id })));
 
+      const movements: (typeof inventoryMovements.$inferInsert)[] = [];
+
       for (const item of items) {
         // The guard is what makes this safe under concurrency: the `FOR UPDATE`
         // read above already serialized us against another checkout, and this
@@ -328,12 +357,27 @@ export async function createOrderForCart({
               gte(products.stock, item.quantity),
             ),
           )
-          .returning({ id: products.id });
+          // `stock` is read back, not recomputed: it is the value this
+          // transaction just wrote, which is what the ledger records.
+          .returning({ id: products.id, stock: products.stock });
 
         if (decremented.length === 0) {
           throw new OutOfStockError(item.productName);
         }
+
+        movements.push({
+          productId: item.productId,
+          delta: -item.quantity,
+          reason: "reservation",
+          orderId: created.id,
+          actorUserId: null,
+          stockAfter: decremented[0].stock,
+        });
       }
+
+      // Every product UPDATE has already happened, and every guard has already
+      // passed, so the ledger and the stock move commit together or not at all.
+      await tx.insert(inventoryMovements).values(movements);
 
       return { created, items, locked: byId };
     });

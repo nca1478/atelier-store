@@ -336,6 +336,30 @@ export const getProductBySlug = cache(
 );
 
 /**
+ * One piece by its uuid — a lookup only the admin surfaces need, since a
+ * storefront URL carries a slug and never an id.
+ *
+ * The uuid guard is the one `getProductsByIds` applies: a malformed id reaching
+ * `where id = $1` is a `22P02`, i.e. a 500, where the caller wanted the same
+ * "no such piece" a missing row gives it. Memoized like `getProductBySlug` so a
+ * page and its metadata share one query.
+ */
+export const getProductById = cache(
+  async (id: string): Promise<Product | undefined> => {
+    if (!isProductId(id)) return undefined;
+
+    const [product] = await db
+      .select(productColumns)
+      .from(products)
+      .innerJoin(categories, eq(products.categoryId, categories.id))
+      .where(eq(products.id, id))
+      .limit(1);
+
+    return product;
+  },
+);
+
+/**
  * The rows behind a bag. Ids arrive from a client-written cookie, so anything that
  * is not a uuid is dropped *here*, before Postgres sees it: `where id in (…)` with a
  * malformed uuid raises `invalid input syntax for type uuid` (22P02), which would

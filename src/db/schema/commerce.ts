@@ -139,13 +139,116 @@ export const stripeEvents = pgTable("stripe_events", {
     .notNull(),
 });
 
+/**
+ * Why a row of stock moved. The vocabulary lives here rather than in `src/data/`
+ * for the same reason `orderStatusValues` does: the `CHECK` below needs it, and
+ * a constant the schema cannot import would let the two drift.
+ *
+ *   reservation — a checkout took stock (`createOrderForCart`)
+ *   release     — a hold came back (`releaseOrderHold`: expired, failed, cancelled)
+ *   adjustment  — an administrator moved the number by hand
+ */
+export const inventoryMovementReasonValues = [
+  "reservation",
+  "release",
+  "adjustment",
+] as const;
+export type InventoryMovementReason =
+  (typeof inventoryMovementReasonValues)[number];
+
+/**
+ * The stock ledger: every change to `products.stock`, and who made it.
+ *
+ * This is a record *beside* the column, not a replacement for it.
+ * `products.stock` stays the authority — the number a shopper is sold against —
+ * and this table is what answers "why is the stock 7?". Never sum `delta` to
+ * rebuild the column: `seed.ts` writes stock without a movement, and a ledger
+ * that is treated as the source of truth would be wrong the first time it ran.
+ *
+ * Append only, like `stripe_events`: no `updatedAt`, no updates, no deletes. A
+ * movement is a fact about a moment, and a fact does not get revised.
+ */
+export const inventoryMovements = pgTable(
+  "inventory_movements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // `restrict` mirrors `order_items.product_id`: a piece with any history —
+    // an order or a single adjustment — cannot be hard deleted. Retire a piece
+    // by driving its stock to zero, do not delete it.
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "restrict" }),
+    // Signed, and never zero: a movement that moved nothing is not a movement.
+    // Negative takes stock off the shelf, positive puts it back.
+    delta: integer("delta").notNull(),
+    reason: varchar("reason", { length: 32 })
+      .$type<InventoryMovementReason>()
+      .notNull(),
+    // Null for an adjustment, which has no order behind it. `restrict` rather
+    // than `set null`: nothing deletes orders today, and the attribution must
+    // not vanish quietly if something ever does.
+    orderId: uuid("order_id").references(() => orders.id, {
+      onDelete: "restrict",
+    }),
+    // Null for an automatic movement — a reservation or a release has no human
+    // behind it. Matches `orders.user_id`: the account outlives its usefulness.
+    actorUserId: uuid("actor_user_id").references(() => users.id, {
+      onDelete: "restrict",
+    }),
+    // An observation, written from the same `UPDATE`'s `RETURNING` in the same
+    // transaction, so it is true for this row. Cheap to read, and the `CHECK`
+    // below catches a bug that would compute it wrongly. Not a source of truth.
+    stockAfter: integer("stock_after").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    check("inventory_movements_delta_check", sql`${table.delta} <> 0`),
+    check(
+      "inventory_movements_stock_after_check",
+      sql`${table.stockAfter} >= 0`,
+    ),
+    check(
+      "inventory_movements_reason_check",
+      sql`${table.reason} in ('reservation', 'release', 'adjustment')`,
+    ),
+    // "This piece's movements, newest first" — the admin history view's query.
+    index("inventory_movements_product_id_created_at_idx").on(
+      table.productId,
+      table.createdAt,
+    ),
+    // "The movements behind this order" — the drill-down from an order.
+    index("inventory_movements_order_id_idx").on(table.orderId),
+  ],
+);
+
 export const ordersRelations = relations(orders, ({ one, many }) => ({
   user: one(users, {
     fields: [orders.userId],
     references: [users.id],
   }),
   items: many(orderItems),
+  movements: many(inventoryMovements),
 }));
+
+export const inventoryMovementsRelations = relations(
+  inventoryMovements,
+  ({ one }) => ({
+    product: one(products, {
+      fields: [inventoryMovements.productId],
+      references: [products.id],
+    }),
+    order: one(orders, {
+      fields: [inventoryMovements.orderId],
+      references: [orders.id],
+    }),
+    actor: one(users, {
+      fields: [inventoryMovements.actorUserId],
+      references: [users.id],
+    }),
+  }),
+);
 
 export const orderItemsRelations = relations(orderItems, ({ one }) => ({
   order: one(orders, {

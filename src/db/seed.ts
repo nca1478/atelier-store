@@ -232,7 +232,13 @@ async function seed() {
         categoryId: sql`excluded.category_id`,
         audience: sql`excluded.audience`,
         priceCents: sql`excluded.price_cents`,
-        stock: sql`excluded.stock`,
+        // `stock` is deliberately absent. It is the one column this file must
+        // not overwrite: reseeding is a catalog operation, and the stock column
+        // holds live inventory — what has been sold, and what an administrator
+        // corrected by hand. Setting it here would silently undo both, and
+        // would leave the `inventory_movements` ledger describing a shelf that
+        // no longer matches it. A new piece still gets its `stock` from the
+        // insert; an existing one keeps whatever it has.
         imageUrl: sql`excluded.image_url`,
         imageAlt: sql`excluded.image_alt`,
         description: sql`excluded.description`,
