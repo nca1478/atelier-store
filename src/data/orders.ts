@@ -16,7 +16,7 @@
 // This module is server-only: it imports the secret-key Stripe client and reads
 // no cookie and no header.
 
-import { and, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type Stripe from "stripe";
 import { db } from "@/lib/db";
 import {
@@ -63,6 +63,22 @@ export type OrderDetail = OrderView & {
 };
 
 /**
+ * One row of the account's order history. Narrower than `OrderView` on purpose:
+ * the list shows when it was placed, where the payment stands, what it came to
+ * and how many pieces it held — the shopper's own id and email are not part of
+ * the story the page is telling.
+ */
+export type OrderSummary = {
+  id: string;
+  status: OrderStatus;
+  totalCents: number;
+  currency: string;
+  createdAt: Date;
+  paidAt: Date | null;
+  itemCount: number;
+};
+
+/**
  * What Stripe needs to render one line, taken from the same `FOR UPDATE` read that
  * priced the order. `imageUrl` is here and not in `order_items` because it is
  * presentation only: Stripe shows it, and nothing downstream depends on it.
@@ -103,6 +119,25 @@ const orderColumns = {
   createdAt: orders.createdAt,
   paidAt: orders.paidAt,
 };
+
+const orderItemColumns = {
+  productId: orderItems.productId,
+  productName: orderItems.productName,
+  productSlug: orderItems.productSlug,
+  unitPriceCents: orderItems.unitPriceCents,
+  quantity: orderItems.quantity,
+  lineTotalCents: orderItems.lineTotalCents,
+};
+
+/**
+ * The short form of an order's uuid, as the shopper sees it. A uuid is not
+ * something to read aloud on a support call, so the order number is its first
+ * eight characters — derived, never stored, and the same in every surface that
+ * shows one.
+ */
+export function orderReference(orderId: string): string {
+  return orderId.slice(0, 8).toUpperCase();
+}
 
 function holdExpiry(from: Date = new Date()): Date {
   return new Date(from.getTime() + CHECKOUT_HOLD_SECONDS * 1000);
@@ -505,14 +540,70 @@ export async function getOrderBySessionId(
   if (!order) return undefined;
 
   const items = await db
+    .select(orderItemColumns)
+    .from(orderItems)
+    .where(eq(orderItems.orderId, order.id));
+
+  return { ...order, items };
+}
+
+/**
+ * The signed-in shopper's order history, newest first.
+ *
+ * A `leftJoin` rather than a second query per row: `groupBy` over the order's
+ * primary key is enough for Postgres to allow the other `orders` columns
+ * unaggregated, so one round trip answers the whole list. The count comes back
+ * through `::int` because `count()` is `bigint` and postgres-js would hand it
+ * over as a string.
+ *
+ * Every status is listed, `expired` and `cancelled` included: an order that
+ * never took money is still an order the shopper placed, and a history that
+ * quietly dropped the rows they abandoned would make the one they are looking
+ * for look like it never happened.
+ */
+export async function getOrdersForUser(userId: string): Promise<OrderSummary[]> {
+  return db
     .select({
-      productId: orderItems.productId,
-      productName: orderItems.productName,
-      productSlug: orderItems.productSlug,
-      unitPriceCents: orderItems.unitPriceCents,
-      quantity: orderItems.quantity,
-      lineTotalCents: orderItems.lineTotalCents,
+      id: orders.id,
+      status: orders.status,
+      totalCents: orders.totalCents,
+      currency: orders.currency,
+      createdAt: orders.createdAt,
+      paidAt: orders.paidAt,
+      itemCount: sql<number>`count(${orderItems.id})::int`,
     })
+    .from(orders)
+    .leftJoin(orderItems, eq(orderItems.orderId, orders.id))
+    .where(eq(orders.userId, userId))
+    .groupBy(orders.id)
+    .orderBy(desc(orders.createdAt), desc(orders.id));
+}
+
+/**
+ * One order, from the account that owns it.
+ *
+ * `userId` is in the `where`, not checked afterwards: a stranger's order id is
+ * not a row this query can reach, so the page renders a 404 rather than reading
+ * someone else's address and then deciding not to show it. The uuid guard is the
+ * same one `getProductsByIds` applies — a hand-edited URL is a 404, never a
+ * `22P02` that turns the page into a 500.
+ */
+export async function getOrderForUser(
+  orderId: string,
+  userId: string,
+): Promise<OrderDetail | undefined> {
+  if (!isUuid(orderId)) return undefined;
+
+  const [order] = await db
+    .select({ ...orderColumns, shippingAddress: orders.shippingAddress })
+    .from(orders)
+    .where(and(eq(orders.id, orderId), eq(orders.userId, userId)))
+    .limit(1);
+
+  if (!order) return undefined;
+
+  const items = await db
+    .select(orderItemColumns)
     .from(orderItems)
     .where(eq(orderItems.orderId, order.id));
 

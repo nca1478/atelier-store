@@ -11,9 +11,10 @@ product detail pages, shared site chrome — and reads its catalog from Postgres
 Authentication (Better Auth) is usable: email/password sign-up, sign-in and sign-out, sessions stored in
 Postgres, `/account` behind a session guard, and `/admin` behind a `role` column. Social login, password
 reset, email verification and 2FA are deliberately absent. Shopping works end to end: a bag that adds pieces,
-changes quantities and shows a server-computed subtotal, and a Stripe-hosted checkout that turns that bag
-into an order (see the cart and checkout bullets under Architecture). Checkout is open to **signed-in
-shoppers only**. Stripe owns the card, the hosted payment page and the truth about whether money moved; our
+changes quantities and shows a server-computed subtotal, a Stripe-hosted checkout that turns that bag into an
+order, and an order history at `/account/orders` that reads back what was bought (see the cart, checkout and
+account bullets under Architecture). Checkout is open to **signed-in shoppers only**. Stripe owns the card,
+the hosted payment page and the truth about whether money moved; our
 database owns the catalog, the totals, the stock and the order. The catalog is otherwise read-only — the
 write paths are `src/db/seed.ts`, `src/db/seed-admin.ts`, and the checkout flow itself.
 
@@ -67,8 +68,17 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
     gets the site chrome for free**; don't re-render header/footer inside a page.
   - `sign-in/page.tsx`, `sign-up/page.tsx` — the auth forms. Both read `searchParams.next` through
     `safeNextPath` (`src/lib/next-path.ts`) and redirect to `/account` when a session already exists.
-  - `account/page.tsx` — calls `requireUser()`; shows name, email, a sign-out button, and an admin link when
-    the role warrants one.
+  - `account/page.tsx` — calls `requireUser()`; shows name, email, a link into the order history, a sign-out
+    button, and an admin link when the role warrants one.
+  - `account/orders/page.tsx` — the order history: the shopper's own orders, newest first, each with its date,
+    payment status, piece count and total, the reference doubling as the link into the detail. Every status
+    is listed, `expired` and `cancelled` included — an order that never took money is still an order someone
+    placed. Read-only, like the rest of `/account`; the empty state points at the catalog.
+  - `account/orders/[id]/page.tsx` — one order. The uuid in the URL is **not** a capability: ownership is
+    `getOrderForUser`'s `where` clause, so a stranger's order renders the same 404 an id that never existed
+    does. Shows the reference, date, status, the lines, the totals and the delivery address, and says in words
+    that it is waiting when the order is still `pending` — payment state is the webhook's to write, so there is
+    nothing on either page to press.
   - `admin/page.tsx` — calls `requireAdmin()`; renders the "not authorized" panel when it returns `null`.
   - `cart/page.tsx` — the bag. Server Component (dynamic: it reads the cart cookie) that renders one row per
     line, the subtotal, and the checkout control. Every number on it comes from `src/data/cart.ts`; no price
@@ -142,7 +152,14 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
   `UPDATE … WHERE status = 'pending'`, which is the second line of defence behind the ledger — a duplicate
   that somehow slipped past dedupe changes zero rows, and in particular restocks nothing twice. `paid` is
   terminal; nothing returns stock from it. `isUuid()` guards `metadata.orderId` before it reaches a `where`,
-  since a malformed id is a `22P02` → 500 → Stripe retries forever.
+  since a malformed id is a `22P02` → 500 → Stripe retries forever. The reads at the bottom of the file serve
+  the account: `getOrdersForUser` answers the history in **one** query — `leftJoin` on `order_items` with
+  `groupBy` over the order's primary key, which Postgres allows to carry the other `orders` columns
+  unaggregated, and a `count(...)::int` because `count()` is `bigint` and postgres-js would hand it over as a
+  string; `getOrderForUser` puts `userId` in the `where` rather than filtering afterwards, so another
+  account's order is never in hand, and guards the uuid shape for the same reason `getProductsByIds` does.
+  `orderReference()` — the first eight characters of the uuid, uppercased — is derived in one place because
+  three surfaces show it.
 - **`src/components/`** — one component per file. `site-header.tsx`, `site-footer.tsx` and `value-strip.tsx`
   are the shared chrome; `product-card.tsx` is the catalog tile (links to `/products/<slug>`) and is reused
   by the homepage grids and the related-pieces rail; `stock-status.tsx` holds the single low-stock threshold.
@@ -160,6 +177,15 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
   your checkout started") somewhere to appear without leaving the bag; `cart-clear-on-success.tsx` is its
   twin on the confirmation page — a `null` renderer that empties the cookie, mounted **only** for an order
   the server has already called `paid`.
+  The order surfaces share three presentational pieces rather than repeating them: `order-lines.tsx` (the
+  `<ul>` of pieces, name linking to `/products/<slug>`, `qty × unit` under it, line total beside) and
+  `order-totals.tsx` (subtotal, shipping as a statement rather than a price, total) were extracted from
+  `/checkout/success` when the account's order detail needed the same markup, so the confirmation and the
+  account now render one order through one component. Both read the row's own `subtotal_cents`/`total_cents`
+  instead of re-summing the lines — the totals were settled inside the reservation transaction and a second
+  opinion about money already taken is how the two drift apart. `order-status-badge.tsx` is the sibling of
+  `stock-status.tsx` for the payment state, and `switch`es over `OrderStatus` so a new value in
+  `orderStatusValues` is a compile error there rather than a silently blank label.
   `account-link.tsx` and `cart-count-link.tsx` **must stay client-side**. `SiteHeader` renders from the root
   layout, so reading the session or the cart cookie there with `headers()`/`cookies()` would opt _every_ route
   into dynamic rendering and cost the catalog its `revalidate = 60` prerendering. `account-link.tsx` uses
@@ -168,6 +194,8 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
   `httpOnly` — the header count is read in the browser.
 - **`src/lib/format.ts`** — `formatPrice`, the shared `Intl.NumberFormat`. It takes **cents** (the stored
   unit), so pass `product.priceCents` straight through. Import it rather than creating another formatter.
+  `formatDate` is the same idea for an order's date, pinned to **UTC** on purpose: these render on the server,
+  so a formatter reading the host's timezone would move an order to a different day between deploys.
 - **`src/db/`** — Drizzle ORM setup.
   - `connection.ts` exports `db` (drizzle instance over `postgres-js`), plus the `getDb`/`getClient`
     accessors behind it, reading `DATABASE_URL`. The client is created on **first use**, not at module load,

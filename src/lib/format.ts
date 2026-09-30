@@ -11,3 +11,18 @@ const currency = new Intl.NumberFormat("en-US", {
 export function formatPrice(cents: number): string {
   return currency.format(cents / 100);
 }
+
+// Order dates read in the shop's own voice — "12 September 2026", not "9/12/26"
+// — and pinned to UTC because these render on the server: a date formatted in
+// whatever timezone the machine happens to be in would move between deploys, and
+// an order placed late in the evening would land on the wrong day.
+const date = new Intl.DateTimeFormat("en-US", {
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+export function formatDate(value: Date): string {
+  return date.format(value);
+}

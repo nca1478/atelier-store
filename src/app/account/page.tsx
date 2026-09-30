@@ -54,6 +54,9 @@ export default async function AccountPage() {
         </dl>
 
         <div className="flex flex-wrap items-center gap-4">
+          <Link className="btn btn-secondary" href="/account/orders">
+            Order history
+          </Link>
           <SignOutButton />
           {/* The only route to /admin. Showing it to admins alone keeps the
               decision to enter an admin area with the person who has the role. */}

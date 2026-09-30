@@ -2,10 +2,11 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/auth/session";
-import { getOrderBySessionId } from "@/data/orders";
-import { formatPrice } from "@/lib/format";
+import { getOrderBySessionId, orderReference } from "@/data/orders";
 import { firstParam } from "@/lib/search-params";
 import { CartClearOnSuccess } from "@/components/cart-clear-on-success";
+import { OrderLines } from "@/components/order-lines";
+import { OrderTotals } from "@/components/order-totals";
 import { ValueStrip } from "@/components/value-strip";
 
 // Dynamic: it reads `searchParams` and the session. robots noindex, like the bag —
@@ -44,7 +45,7 @@ export default async function CheckoutSuccessPage(
   // order. Not ours to show, so it does not exist.
   if (!order || order.userId !== session.user.id) notFound();
 
-  const reference = order.id.slice(0, 8).toUpperCase();
+  const reference = orderReference(order.id);
   const pending = order.status === "pending";
   const paid = order.status === "paid";
 
@@ -88,51 +89,15 @@ export default async function CheckoutSuccessPage(
         </div>
 
         <div className="flex flex-col gap-16 lg:grid lg:grid-cols-[minmax(0,1fr)_22rem]">
-          <ul className="flex flex-col">
-            {order.items.map((item) => (
-              <li
-                key={item.productId}
-                className="divider flex items-baseline justify-between gap-6 py-5"
-              >
-                <div className="flex flex-col gap-1">
-                  <Link
-                    className="link-nav text-ink"
-                    href={`/products/${item.productSlug}`}
-                  >
-                    {item.productName}
-                  </Link>
-                  <span className="text-sm text-stone">
-                    {item.quantity} × {formatPrice(item.unitPriceCents)}
-                  </span>
-                </div>
-                <span className="text-base tabular-nums">
-                  {formatPrice(item.lineTotalCents)}
-                </span>
-              </li>
-            ))}
-          </ul>
+          <OrderLines items={order.items} />
 
           <aside className="divider flex flex-col gap-6 pt-6 lg:sticky lg:top-28 lg:self-start">
             <h2 className="text-2xl">Summary</h2>
 
-            <dl className="flex flex-col">
-              <div className="divider flex items-baseline justify-between gap-6 py-4">
-                <dt className="label-caps text-stone">Subtotal</dt>
-                <dd className="text-lg tabular-nums">
-                  {formatPrice(order.subtotalCents)}
-                </dd>
-              </div>
-              <div className="divider flex items-baseline justify-between gap-6 py-4">
-                <dt className="label-caps text-stone">Shipping</dt>
-                <dd className="text-sm text-ink-soft">Included</dd>
-              </div>
-              <div className="flex items-baseline justify-between gap-6 py-4">
-                <dt className="label-caps text-stone">Total</dt>
-                <dd className="text-lg tabular-nums">
-                  {formatPrice(order.totalCents)}
-                </dd>
-              </div>
-            </dl>
+            <OrderTotals
+              subtotalCents={order.subtotalCents}
+              totalCents={order.totalCents}
+            />
 
             {order.shippingAddress && (
               <div className="divider flex flex-col gap-1 pt-6 text-sm text-ink-soft">
