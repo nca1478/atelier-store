@@ -1,10 +1,13 @@
 import Link from "next/link";
 
+// Same destinations as the header's nav — kept as its own list rather than
+// derived from `navLinks`, since the order differs and the two files should not
+// have to change together.
 const shopLinks = [
   { href: "/products", label: "Shop All" },
-  { href: "/#women", label: "Women" },
-  { href: "/#men", label: "Men" },
-  { href: "/#accessories", label: "Accessories" },
+  { href: "/products?audience=women", label: "Women" },
+  { href: "/products?audience=men", label: "Men" },
+  { href: "/products?category=accessories", label: "Accessories" },
   { href: "/new-arrivals", label: "New Arrivals" },
 ];
 

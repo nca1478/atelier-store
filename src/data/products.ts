@@ -5,8 +5,15 @@
 import { cache } from "react";
 import { and, asc, desc, eq, ilike, inArray, ne, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { categories, products } from "@/db/schema";
+import { audienceValues, categories, products, type Audience } from "@/db/schema";
 import { isProductId } from "@/lib/cart";
+
+// The listing page builds its filter chips from the same union the column is
+// checked against, exactly as `productSorts` feeds the sort control — one
+// definition, two consumers. Re-exported so pages import the vocabulary from
+// the data layer rather than reaching into the schema.
+export { audienceValues };
+export type { Audience };
 
 export type ProductDetail = { label: string; value: string };
 
@@ -110,6 +117,39 @@ export function parseProductSort(value: string | undefined): ProductSort {
   return productSorts.find((sort) => sort === value) ?? "featured";
 }
 
+/**
+ * Unlike `parseProductSort`, an unrecognised value falls back to *no filter*
+ * rather than to a default: same posture as an unknown category slug, so a
+ * hand-edited `?audience=` shows the whole catalog instead of erroring. It is
+ * also what keeps `?audience=accessories` out of the audience dimension —
+ * `accessories` names a category, never a fourth audience.
+ */
+export function parseProductAudience(
+  value: string | undefined,
+): Audience | undefined {
+  return audienceValues.find((audience) => audience === value);
+}
+
+/**
+ * The pieces a rail should show, which for `women` and `men` includes `unisex`:
+ * a piece cut for anyone belongs on both, not on a third shelf nobody browses
+ * to. The consequence is deliberate — the chips add up to more than the
+ * catalog, because a unisex piece is counted by each rail it appears on.
+ *
+ * A `switch` over the union rather than a ternary so that adding a fourth value
+ * to `audienceValues` is a type error here, not a silent omission.
+ */
+function audienceFilter(audience: Audience): Audience[] {
+  switch (audience) {
+    case "women":
+      return ["women", "unisex"];
+    case "men":
+      return ["men", "unisex"];
+    case "unisex":
+      return ["unisex"];
+  }
+}
+
 /** Every ordering keeps `sortOrder` then `id` as tie-breaks, so it is stable. */
 function listingOrder(sort: ProductSort) {
   switch (sort) {
@@ -140,19 +180,37 @@ function listingOrder(sort: ProductSort) {
  * The listing page's query. `category` is a category *slug*, not an id — an
  * unknown slug (a hand-edited URL, a category that has been renamed) filters
  * nothing rather than erroring, so the page falls back to the full catalog.
+ * `audience` widens the same way: no value means no constraint.
+ *
+ * The two filters are independent and compose, which is the whole point of
+ * having them side by side: Women + Outerwear narrows twice, and clearing one
+ * leaves the other standing.
  */
 export async function getProductListing(
-  options: { category?: string; sort?: ProductSort; limit?: number } = {},
+  options: {
+    category?: string;
+    audience?: Audience;
+    sort?: ProductSort;
+    limit?: number;
+  } = {},
 ): Promise<Product[]> {
-  const { category, sort = "featured", limit = 100 } = options;
+  const { category, audience, sort = "featured", limit = 100 } = options;
   const allCategories = await getCategories();
   const match = allCategories.find((item) => item.slug === category);
+
+  // A predicate per active dimension. `and()` of nothing but `undefined`
+  // returns `undefined`, which `.where()` accepts as "no constraint" — the
+  // same shape the single-condition version had.
+  const conditions = [
+    match ? eq(products.categoryId, match.id) : undefined,
+    audience ? inArray(products.audience, audienceFilter(audience)) : undefined,
+  ];
 
   return db
     .select(productColumns)
     .from(products)
     .innerJoin(categories, eq(products.categoryId, categories.id))
-    .where(match ? eq(products.categoryId, match.id) : undefined)
+    .where(and(...conditions))
     .orderBy(...listingOrder(sort))
     .limit(limit);
 }
@@ -347,14 +405,15 @@ export type Collection = {
 
 /**
  * Marketing tiles for the homepage — not the catalog's categories (nothing here
- * maps to Outerwear or Knitwear). Stays in code until there are collection
- * landing pages to point at.
+ * maps to Outerwear or Knitwear), but they do name the same axis the header's
+ * collection links do. Pointing them at the listing's own filter URLs makes the
+ * "Shop now" land somewhere real instead of a dead `#`.
  */
 export const collections: Collection[] = [
   {
     id: "women",
     title: "Women",
-    href: "#",
+    href: "/products?audience=women",
     image:
       "https://images.unsplash.com/photo-1483985988355-763728e1935b?q=80&w=1000&auto=format&fit=crop",
     alt: "Woman in a burgundy wool coat carrying shopping bags",
@@ -362,7 +421,7 @@ export const collections: Collection[] = [
   {
     id: "men",
     title: "Men",
-    href: "#",
+    href: "/products?audience=men",
     image:
       "https://images.unsplash.com/photo-1487222477894-8943e31ef7b2?q=80&w=1000&auto=format&fit=crop",
     alt: "Man in a tan leather jacket and sunglasses",
@@ -370,7 +429,7 @@ export const collections: Collection[] = [
   {
     id: "accessories",
     title: "Accessories",
-    href: "#",
+    href: "/products?category=accessories",
     image:
       "https://images.unsplash.com/photo-1611085583191-a3b181a88401?q=80&w=1000&auto=format&fit=crop",
     alt: "Gold pendant necklace detail",

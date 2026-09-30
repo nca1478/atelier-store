@@ -1,10 +1,13 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import {
+  audienceValues,
   getCategories,
   getProductListing,
+  parseProductAudience,
   parseProductSort,
   productSorts,
+  type Audience,
   type ProductSort,
 } from "@/data/products";
 import { ProductCard } from "@/components/product-card";
@@ -19,7 +22,14 @@ const sortLabels: Record<ProductSort, string> = {
   "price-desc": "Price: High to Low",
 };
 
-/** Chip in the category row: hairline underline when it is the active filter. */
+/** Chip label and heading word for each collection — "Women", not "women". */
+const audienceLabels: Record<Audience, string> = {
+  women: "Women",
+  men: "Men",
+  unisex: "Unisex",
+};
+
+/** Chip in a filter row: hairline underline when it is the active filter. */
 function chipClass(current: boolean): string {
   return `label-caps border-b pb-1 transition-colors ${
     current
@@ -32,15 +42,22 @@ function chipClass(current: boolean): string {
  * Listing URLs are built here rather than inside the filter components, so the
  * query shape lives in one place. Defaults are dropped, which keeps the whole
  * catalog at a bare `/products`.
+ *
+ * Every caller passes all three dimensions, which is what keeps the filters
+ * independent: the "All" chip of one row simply omits its own dimension and
+ * hands the others straight back.
  */
 function listingHref({
+  audience,
   category,
   sort,
 }: {
+  audience?: Audience;
   category?: string;
   sort?: ProductSort;
 }): string {
   const query = new URLSearchParams();
+  if (audience) query.set("audience", audience);
   if (category) query.set("category", category);
   if (sort && sort !== "featured") query.set("sort", sort);
 
@@ -56,35 +73,59 @@ async function findCategory(slug: string | undefined) {
   return allCategories.find((item) => item.slug === slug);
 }
 
+/**
+ * The listing's title when a filter is on — `Women · Outerwear` — and
+ * `undefined` when none is. Shared by the page heading and the metadata so the
+ * tab and the `<h1>` can never disagree; an unrecognised value narrows nothing,
+ * so it names nothing either.
+ */
+function listingHeading(
+  audience: Audience | undefined,
+  categoryName: string | undefined,
+): string | undefined {
+  const parts = [audience ? audienceLabels[audience] : undefined, categoryName];
+  return parts.filter(Boolean).join(" · ") || undefined;
+}
+
 export async function generateMetadata(
   props: PageProps<"/products">,
 ): Promise<Metadata> {
-  const { category } = await props.searchParams;
+  const { audience, category } = await props.searchParams;
   const active = await findCategory(firstParam(category));
+  const heading = listingHeading(
+    parseProductAudience(firstParam(audience)),
+    active?.name,
+  );
 
   return {
-    title: active ? `${active.name} — Atelier` : "Shop — Atelier",
+    title: heading ? `${heading} — Atelier` : "Shop — Atelier",
     description:
       "The full Atelier catalog — outerwear, knitwear, footwear and accessories, produced in small runs from archive fabrics.",
   };
 }
 
-// A request-time render: the active category and sort live in the URL, so there
+// A request-time render: the active filters and sort live in the URL, so there
 // is no single HTML file to prerender. Filtering in Postgres per request is cheap
 // at this catalog size, and unlike the other catalog routes this one does not
 // query during `next build`.
 export default async function ProductsPage(props: PageProps<"/products">) {
-  const { category: categoryParam, sort: sortParam } = await props.searchParams;
+  const {
+    audience: audienceParam,
+    category: categoryParam,
+    sort: sortParam,
+  } = await props.searchParams;
 
   const slug = firstParam(categoryParam);
+  const audience = parseProductAudience(firstParam(audienceParam));
   const sort = parseProductSort(firstParam(sortParam));
 
   const [allCategories, products] = await Promise.all([
     getCategories(),
-    getProductListing({ category: slug, sort }),
+    getProductListing({ category: slug, audience, sort }),
   ]);
 
   const active = allCategories.find((item) => item.slug === slug);
+  const heading = listingHeading(audience, active?.name);
 
   return (
     <main className="flex-1">
@@ -100,7 +141,7 @@ export default async function ProductsPage(props: PageProps<"/products">) {
           <span className="label-caps text-stone" aria-hidden="true">
             /
           </span>
-          {active ? (
+          {audience || active ? (
             <>
               <Link className="link-nav" href="/products">
                 Shop
@@ -108,9 +149,23 @@ export default async function ProductsPage(props: PageProps<"/products">) {
               <span className="label-caps text-stone" aria-hidden="true">
                 /
               </span>
-              <span className="label-caps text-ink" aria-current="page">
-                {active.name}
-              </span>
+              {audience && (
+                <>
+                  <Link className="link-nav" href={listingHref({ audience })}>
+                    {audienceLabels[audience]}
+                  </Link>
+                  {active && (
+                    <span className="label-caps text-stone" aria-hidden="true">
+                      /
+                    </span>
+                  )}
+                </>
+              )}
+              {active && (
+                <span className="label-caps text-ink" aria-current="page">
+                  {active.name}
+                </span>
+              )}
             </>
           ) : (
             <span className="label-caps text-ink" aria-current="page">
@@ -125,7 +180,7 @@ export default async function ProductsPage(props: PageProps<"/products">) {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="flex flex-col gap-2">
             <span className="label-caps text-stone">The Collection</span>
-            <h1 className="text-4xl">{active ? active.name : "All Pieces"}</h1>
+            <h1 className="text-4xl">{heading ?? "All Pieces"}</h1>
           </div>
           {products.length > 0 && (
             <span className="label-caps text-stone">
@@ -141,40 +196,80 @@ export default async function ProductsPage(props: PageProps<"/products">) {
       </section>
 
       {/* Filters -------------------------------------------------------------- */}
+      {/* One sticky bar, not two: the header is `z-20` and `h-20`, so a second
+          stacked bar would fight it for the same offset. */}
       <div className="divider sticky top-20 z-10 bg-paper">
-        <div className="container-shell flex flex-wrap items-center justify-between gap-x-8 gap-y-4 py-4">
-          <nav
-            className="flex flex-wrap items-center gap-x-6 gap-y-3"
-            aria-label="Filter by category"
-          >
-            <Link
-              className={chipClass(!active)}
-              href={listingHref({ sort })}
-              aria-current={active ? undefined : "true"}
+        <div className="container-shell flex flex-wrap items-start justify-between gap-x-8 gap-y-4 py-4">
+          <div className="flex flex-col gap-3">
+            <nav
+              className="flex flex-wrap items-center gap-x-6 gap-y-3"
+              aria-label="Filter by collection"
             >
-              All
-            </Link>
-            {allCategories.map((category) => {
-              const current = category.slug === active?.slug;
+              <span className="label-caps text-stone">For</span>
+              <Link
+                className={chipClass(!audience)}
+                href={listingHref({ category: active?.slug, sort })}
+                aria-current={audience ? undefined : "true"}
+              >
+                All
+              </Link>
+              {audienceValues.map((value) => {
+                const current = value === audience;
 
-              return (
-                <Link
-                  key={category.id}
-                  className={chipClass(current)}
-                  href={listingHref({ category: category.slug, sort })}
-                  aria-current={current ? "true" : undefined}
-                >
-                  {category.name}
-                </Link>
-              );
-            })}
-          </nav>
+                return (
+                  <Link
+                    key={value}
+                    className={chipClass(current)}
+                    href={listingHref({
+                      audience: value,
+                      category: active?.slug,
+                      sort,
+                    })}
+                    aria-current={current ? "true" : undefined}
+                  >
+                    {audienceLabels[value]}
+                  </Link>
+                );
+              })}
+            </nav>
+            <nav
+              className="flex flex-wrap items-center gap-x-6 gap-y-3"
+              aria-label="Filter by category"
+            >
+              <span className="label-caps text-stone">Category</span>
+              <Link
+                className={chipClass(!active)}
+                href={listingHref({ audience, sort })}
+                aria-current={active ? undefined : "true"}
+              >
+                All
+              </Link>
+              {allCategories.map((category) => {
+                const current = category.slug === active?.slug;
+
+                return (
+                  <Link
+                    key={category.id}
+                    className={chipClass(current)}
+                    href={listingHref({
+                      audience,
+                      category: category.slug,
+                      sort,
+                    })}
+                    aria-current={current ? "true" : undefined}
+                  >
+                    {category.name}
+                  </Link>
+                );
+              })}
+            </nav>
+          </div>
           <SortSelect
             value={sort}
             options={productSorts.map((value) => ({
               value,
               label: sortLabels[value],
-              href: listingHref({ category: active?.slug, sort: value }),
+              href: listingHref({ audience, category: active?.slug, sort: value }),
             }))}
           />
         </div>
@@ -190,9 +285,11 @@ export default async function ProductsPage(props: PageProps<"/products">) {
           </div>
         ) : (
           <div className="flex flex-col items-start gap-6">
+            {/* A filter combination with no pieces in it is a valid URL, so the
+                copy cannot blame the category — the way out is any filter. */}
             <p className="text-base text-ink-soft">
-              Nothing in this category just yet — the next delivery is on its
-              way.
+              Nothing here just yet — try clearing a filter, the next delivery
+              is on its way.
             </p>
             <Link className="btn btn-secondary" href="/products">
               View all pieces

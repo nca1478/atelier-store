@@ -1,0 +1,2 @@
+ALTER TABLE "products" ADD COLUMN "audience" varchar(16) DEFAULT 'unisex' NOT NULL;--> statement-breakpoint
+ALTER TABLE "products" ADD CONSTRAINT "products_audience_check" CHECK ("products"."audience" in ('women', 'men', 'unisex'));

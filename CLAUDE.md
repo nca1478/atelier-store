@@ -133,7 +133,13 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
     (`category_id`, also uuid, `onDelete: 'restrict'`), prices are stored as `price_cents` integers, and
     `stock`/`price_cents` are guarded by `CHECK (... >= 0)`. `products.slug` is the unique, human-readable
     key the storefront links to. `details` is `jsonb` because its order is meaningful and nothing queries by
-    label. Add new tables as sibling files and re-export them from `index.ts`.
+    label. `products.audience` (`'women' | 'men' | 'unisex'`, the `audienceValues` tuple exported next to the
+    table) is a second classification axis, independent of the category — `Accessories` is a category,
+    `women` is an audience. It is `varchar` + `CHECK`, not a `pgEnum`, so a new value is an `ALTER TABLE`
+    rather than an `ALTER TYPE ... ADD VALUE` (which cannot run inside a transaction), matching `users.role`.
+    The default `'unisex'` is what made `0003_sticky_gertrude_yorkes` safe on a table that already had rows;
+    `unisex` is *inclusive*, so the listing widens `women`/`men` to include it rather than shelving it apart.
+    Add new tables as sibling files and re-export them from `index.ts`.
   - `seed.ts` — upserts the sample catalog. Ids are **hardcoded uuids**, not `randomUUID()` calls: the upsert
     is keyed on them, so generated ids would insert a fresh catalog on every run instead of updating the
     existing rows. Run through `tsx`, not plain `node`: Node's native type stripping needs explicit

@@ -11,7 +11,12 @@
 import 'dotenv/config';
 import { sql } from 'drizzle-orm';
 import { db, getClient } from './connection';
-import { categories, products, type ProductDetail } from './schema';
+import {
+  categories,
+  products,
+  type Audience,
+  type ProductDetail,
+} from './schema';
 
 // Ids are hardcoded rather than generated with `randomUUID()`: the whole script
 // is an upsert keyed on them, so stable ids are what make re-running it update
@@ -49,6 +54,7 @@ type ProductRow = {
   slug: string;
   name: string;
   categoryId: string;
+  audience: Audience;
   priceCents: number;
   stock: number;
   imageUrl: string;
@@ -66,6 +72,7 @@ const productRows: ProductRow[] = [
     slug: 'wool-coat',
     name: 'Structured Wool Coat',
     categoryId: categoryIds.outerwear,
+    audience: 'women',
     priceCents: 240000,
     stock: 6,
     imageUrl:
@@ -86,6 +93,7 @@ const productRows: ProductRow[] = [
     slug: 'bomber-jacket',
     name: 'Leather Bomber Jacket',
     categoryId: categoryIds.outerwear,
+    audience: 'men',
     priceCents: 145000,
     stock: 0,
     imageUrl:
@@ -106,6 +114,7 @@ const productRows: ProductRow[] = [
     slug: 'fringe-poncho',
     name: 'Cream Fringe Poncho',
     categoryId: categoryIds.knitwear,
+    audience: 'women',
     priceCents: 62000,
     stock: 2,
     imageUrl:
@@ -125,6 +134,7 @@ const productRows: ProductRow[] = [
     slug: 'ankle-boots',
     name: 'Leather Ankle Boots',
     categoryId: categoryIds.footwear,
+    audience: 'unisex',
     priceCents: 98000,
     stock: 11,
     imageUrl:
@@ -145,6 +155,7 @@ const productRows: ProductRow[] = [
     slug: 'leather-tote',
     name: 'Structured Leather Tote',
     categoryId: categoryIds.accessories,
+    audience: 'women',
     priceCents: 129000,
     stock: 4,
     imageUrl:
@@ -165,6 +176,7 @@ const productRows: ProductRow[] = [
     slug: 'suede-oxfords',
     name: 'Suede Oxford Shoes',
     categoryId: categoryIds.footwear,
+    audience: 'men',
     priceCents: 86000,
     stock: 3,
     imageUrl:
@@ -185,6 +197,7 @@ const productRows: ProductRow[] = [
     slug: 'pendant-necklace',
     name: 'Gold Pendant Necklace',
     categoryId: categoryIds.accessories,
+    audience: 'unisex',
     priceCents: 34000,
     stock: 14,
     imageUrl:
@@ -205,6 +218,7 @@ const productRows: ProductRow[] = [
     slug: 'silk-blouse',
     name: 'Silk Chiffon Blouse',
     categoryId: categoryIds.readyToWear,
+    audience: 'women',
     priceCents: 78000,
     stock: 1,
     imageUrl:
@@ -243,6 +257,7 @@ async function seed() {
         slug: sql`excluded.slug`,
         name: sql`excluded.name`,
         categoryId: sql`excluded.category_id`,
+        audience: sql`excluded.audience`,
         priceCents: sql`excluded.price_cents`,
         stock: sql`excluded.stock`,
         imageUrl: sql`excluded.image_url`,

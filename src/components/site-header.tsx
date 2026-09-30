@@ -2,12 +2,15 @@ import Link from "next/link";
 import { AccountLink } from "@/components/account-link";
 import { CartCountLink } from "@/components/cart-count-link";
 
+// Women and Men are the `audience` column; Accessories is a catalog category,
+// so it filters on the other axis. Both land on the same listing page, which
+// is what makes the two dimensions visible side by side.
 const navLinks = [
   { href: "/products", label: "Shop" },
   { href: "/new-arrivals", label: "New Arrivals" },
-  { href: "/#women", label: "Women" },
-  { href: "/#men", label: "Men" },
-  { href: "/#accessories", label: "Accessories" },
+  { href: "/products?audience=women", label: "Women" },
+  { href: "/products?audience=men", label: "Men" },
+  { href: "/products?category=accessories", label: "Accessories" },
 ];
 
 export function SiteHeader() {
