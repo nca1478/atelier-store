@@ -23,8 +23,8 @@ Shopping works end to end: a bag that adds pieces, changes quantities and shows 
 a Stripe-hosted checkout that turns the bag into an order; and an order history at `/account/orders` that
 reads back what was bought. **Checkout is signed-in only.** Stripe owns the card, the hosted payment page
 and the truth about whether money moved; our database owns the catalog, the totals, the stock and the order.
-The catalog is otherwise read-only — the only write paths are `src/db/seed.ts`, `src/db/seed-admin.ts` and
-the checkout flow.
+The catalog is otherwise read-only — the only write paths are `src/db/seed.ts`, `src/db/seed-admin.ts`,
+the checkout flow and the admin inventory panel (`src/data/inventory.ts`).
 
 ## Commands
 
@@ -111,7 +111,7 @@ ever flip to dynamic, something in the shared chrome started reading the session
   renders the same 404 as an id that never existed. Every status is listed, `expired` and `cancelled`
   included — an order that never took money is still an order someone placed. Read-only.
 - `api/auth/[...all]/route.ts` — mounts the Better Auth handler via `toNextJsHandler(auth)`. The only auth
-  endpoint; don't hand-roll others. The segment must be a *single* directory named `[...all]` — splitting
+  endpoint; don't hand-roll others. The segment must be a _single_ directory named `[...all]` — splitting
   it into `[...all` + `]` registers the literal path `/api/auth/[...all/]` and 404s every real call.
   Verify with `curl -s -o /dev/null -w '%{http_code}' localhost:3000/api/auth/get-session` (expect 200).
 - `api/stripe/webhook/route.ts` — Stripe's callback and the **only** writer of a payment outcome. Verifies
@@ -149,7 +149,7 @@ column. Buttons and forms express intent; the server owns every number.
   - `getProductsByIds` filters to valid uuid shapes **before** the `where … in (…)` — an id that isn't a
     uuid reaching Postgres is a `22P02`, i.e. a 500 on `/cart` from a hand-edited cookie. The guard is
     deliberately duplicated in the cookie parser.
-  - `collections` also lives here but is *marketing* copy, not catalog data: its tiles point at the
+  - `collections` also lives here but is _marketing_ copy, not catalog data: its tiles point at the
     listing's own filter URLs and don't map to rows in `categories`.
 - **`src/data/orders.ts`** — the only module that writes orders or stock, and where the money rules live.
   `createOrderForCart()` is the reservation: it supersedes the shopper's own stale `pending` orders first
@@ -170,6 +170,24 @@ column. Buttons and forms express intent; the server owns every number.
   string. `getOrderForUser` puts `userId` in the `where` rather than filtering afterwards.
   `orderReference()` — the first eight characters of the uuid, uppercased — is derived in one place
   because three surfaces show it.
+- **`src/data/inventory.ts`** — the hand adjustments an administrator makes, and the ledger read behind
+  them. Server-only, and _caller_-authenticated: it reads no session of its own, because the Server Action
+  above it has already run `requireAdmin()` and passes the actor's id, which keeps the authorization
+  decision in one place. `adjustProductStock()` moves one piece by a delta in **one transaction**, guarded
+  by `stock + delta >= 0` in the `WHERE` — that guard is what keeps `products_stock_check` from ever
+  firing, so a refusal is a value it returns rather than a `23514` the caller would have to turn into a
+  500; the read that follows a refused update exists only to tell "no such piece" apart from "that would
+  leave it negative", so the page can say which. The ledger row is written **after** the update and behind
+  its guard, the same order `orders.ts` uses, so an update that changed no rows writes no ledger row.
+  `getMovementsForProduct()` `leftJoin`s the actor rather than querying per row — most movements are
+  automatic and have none, which is what a left join is for. `parseStockDelta` is allowlist-and-fallback on
+  a pattern rather than `Number()`, because `Number("3.7")` is 3.7 and `Number("1e3")` is 1000, and neither
+  is a stock count.
+  The admin's adjustment is also the one write that has to hand-refresh the prerendered routes:
+  `src/app/admin/products/actions.ts` calls `revalidatePath` on `/`, `/new-arrivals` and the
+  `/products/[slug]` route pattern, or a change to the shelf would not reach the storefront for up to a
+  minute. It uses the route pattern rather than the slug so nothing the form sent decides which page is
+  refreshed.
 
 ### The cart
 
@@ -182,7 +200,7 @@ Three modules, split by authority. Getting this wrong is the easy way to introdu
   the browser bundle. The value is `uuid.qty` pairs joined by `~`, not JSON: `~` and `.` are legal
   cookie-octets (RFC 6265), so it is never percent-encoded and reads straight from DevTools. Parsing is
   allowlist-and-fallback — every missing, oversized, corrupt or hostile value returns `[]`, never throws.
-  `upsertCartLine` clamps the *result* (adding 3 to a bag holding 2 with stock 4 gives 4, not 5).
+  `upsertCartLine` clamps the _result_ (adding 3 to a bag holding 2 with stock 4 gives 4, not 5).
 - **`src/lib/cart-store.ts`** — the client store (`"use client"`): a module-level snapshot over
   `useSyncExternalStore`, and the **only** place in the app that writes `document.cookie`. A module store
   rather than a provider in `layout.tsx`, so no new client boundary wraps `{children}`. Two load-bearing
@@ -191,7 +209,7 @@ Three modules, split by authority. Getting this wrong is the easy way to introdu
   mismatch); and `getServerSnapshot` returns `{ status: "unknown" }`, which doubles as the header's pending
   placeholder. The first read happens in `subscribe`, which only runs in an effect on the client.
 - **`src/data/cart.ts`** — the authoritative cart, server-only (reads `next/headers`). `getCart()` turns
-  the cookie into prices, stock and totals: the cookie carries *intent* — which pieces, how many — and
+  the cookie into prices, stock and totals: the cookie carries _intent_ — which pieces, how many — and
   every number the UI shows (unit price, line total, subtotal, **and the quantity itself**) is decided here
   from the database. This is the clamp that survives a stale page, a hand-edited cookie, or stock changed
   in Drizzle Studio between renders. `authoritativeCartCookie()` re-serializes that answer for
@@ -262,13 +280,19 @@ Three modules, split by authority. Getting this wrong is the easy way to introdu
     `pgEnum`, so a new value is an `ALTER TABLE` rather than an `ALTER TYPE … ADD VALUE` (which cannot run
     inside a transaction). The `'unisex'` default is what made the migration safe on a table that already
     had rows.
-  - `commerce.ts` — `orders`, `order_items`, `stripe_events`, following `catalog.ts` to the letter.
+  - `commerce.ts` — `orders`, `order_items`, `stripe_events` and `inventory_movements`, following
+    `catalog.ts` to the letter.
     `order_items` is a **snapshot** on purpose: it copies `productName`, `productSlug` and `unitPriceCents`
     at reservation time, because the bag was priced from `products` and the catalog can be reseeded,
     repriced or re-slugged afterwards — an order must not change because `seed.ts` ran.
     `orders.status` is guarded by `CHECK` against the `orderStatusValues` tuple exported next to the table.
     `stripe_events` is a webhook ledger, not a domain table: its primary key is Stripe's own `evt_…` id,
     which is what makes an insert into it an idempotency claim.
+    `inventory_movements` is the second ledger and the one that explains `products.stock`: every
+    reservation, release and hand adjustment, with its `delta`, the `stock_after` it produced and who did
+    it. A record _beside_ the column, never a replacement for it — `seed.ts` writes stock without a
+    movement, so summing `delta` to rebuild the column is wrong the first time it runs. Append-only like
+    `stripe_events`: no `updatedAt`, no updates, no deletes.
 - **`src/db/seed.ts`** — upserts the sample catalog idempotently by **natural keys**: it conflicts on
   `categories.name` and `products.slug`, and no id appears in the file. Re-running updates the rows already
   in the database instead of inserting a second catalog beside them. The consequence is that the same
@@ -287,15 +311,16 @@ Three modules, split by authority. Getting this wrong is the easy way to introdu
 ### Components and client boundaries
 
 One component per file under `src/components/`. Most are Server Components; the `"use client"` ones are
-`account-link`, `add-to-bag`, `auth-form`, `card-add-button`, `cart-clear-on-success`, `cart-count-link`,
-`cart-line-controls`, `cart-reconciler`, `checkout-button`, `sign-out-button`, `sort-select` (plus
+`account-link`, `add-to-bag`, `admin-stock-form`, `auth-form`, `card-add-button`, `cart-clear-on-success`,
+`cart-count-link`, `cart-line-controls`, `cart-reconciler`, `checkout-button`, `sign-out-button`,
+`sort-select` (plus
 `src/lib/cart-store.ts`).
 
 `site-header.tsx`, `site-footer.tsx` and `value-strip.tsx` are shared chrome; `product-card.tsx` is the
 catalog tile, reused by the homepage grids, the listing, search, New Arrivals and the related rail.
 
 The cart splits by authority. `add-to-bag.tsx` and `card-add-button.tsx` are Client Components that
-*express intent* — they write the cookie through the store and never compute a price. `cart-line-item.tsx`
+_express intent_ — they write the cookie through the store and never compute a price. `cart-line-item.tsx`
 is a **Server** Component rendering a row's price, line total and stock notice, wrapping
 `cart-line-controls.tsx`, the client island that changes quantity and calls `router.refresh()`.
 `cart-reconciler.tsx` renders `null` and writes the server's answer back on mount.
@@ -319,8 +344,21 @@ inside the reservation transaction, and a second opinion about money already tak
 apart. `order-status-badge.tsx` is the sibling of `stock-status.tsx` for payment state and `switch`es over
 `OrderStatus`, so a new value in `orderStatusValues` is a compile error there rather than a blank label.
 
+Four components now render one small state as a dot and a micro-label: `stock-status.tsx`,
+`order-status-badge.tsx`, `movement-reason-badge.tsx` and `product-stock-badge.tsx`. The middle two are
+siblings by construction — each `switch`es over its own union, so a value added to `orderStatusValues` or
+`inventoryMovementReasonValues` is a compile error rather than a blank label. The outer two are the one
+pair that genuinely _share_ their vocabulary rather than merely echoing it: `stock-status.tsx` owns the
+low-stock threshold and exports `describeStock`, which the product page's line and the catalog tile's chip
+both read, so what counts as "low" cannot drift between them. `product-stock-badge.tsx` draws the chip
+**only for the exception** — "In stock" is the ordinary state of a shelf, and a flag on every tile flags
+nothing — and positions it over the card's media rather than in the copy column, so a marked tile keeps
+its neighbours' height and the grid does not stagger. `product-card.tsx` also marks a sold-out tile
+`card-sold-out`, which `globals.css` uses to dim the image and withhold the hover zoom: scaling a piece up
+is an invitation to look closer, and the wrong one to offer for something that cannot be bought.
+
 `account-link.tsx` and `cart-count-link.tsx` **must stay client-side**. `SiteHeader` renders from the root
-layout, so reading the session or the cart cookie there with `headers()`/`cookies()` would opt *every*
+layout, so reading the session or the cart cookie there with `headers()`/`cookies()` would opt _every_
 route into dynamic rendering and cost the catalog its `revalidate = 60` prerendering. `account-link.tsx`
 uses `useSession()`; `cart-count-link.tsx` reads the module store. Both render an invisible same-width
 placeholder while pending so the header doesn't jump.
