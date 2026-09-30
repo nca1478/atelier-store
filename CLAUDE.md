@@ -10,7 +10,7 @@ A Next.js 16 (App Router, Turbopack) storefront for a fashion label. The front e
 product detail pages, shared site chrome — and reads its catalog from Postgres through Drizzle ORM.
 Authentication (Better Auth) is usable: email/password sign-up, sign-in and sign-out, sessions stored in
 Postgres, `/account` behind a session guard, and `/admin` behind a `role` column. Social login, password
-reset, email verification and 2FA are deliberately absent. Shopping works as far as *collecting*: a guest bag
+reset, email verification and 2FA are deliberately absent. Shopping works as far as _collecting_: a guest bag
 that adds pieces, changes quantities and shows a server-computed subtotal (see the cart bullets under
 Architecture). There is still no commerce backend: no Stripe, no checkout, no orders, no stock reservation —
 the "Checkout coming soon" button on `/cart` is deliberately inert. The catalog is otherwise read-only, and
@@ -73,9 +73,9 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
   (`getProductBySlug`), since that is what the route carries: the view model exposes both `id` (uuid, for
   React keys) and `slug` (for links), and only `product-card.tsx` should be building a product URL.
   `getProductBySlug` is wrapped in React's `cache` so `generateMetadata` and the page share one query per
-  request. `collections` also lives here but is *marketing* copy, not catalog data: its tiles don't map to
+  request. `collections` also lives here but is _marketing_ copy, not catalog data: its tiles don't map to
   rows in `categories`. `getProductsByIds` is the cart's query, and it filters to valid uuid shapes
-  *before* the `where … in (…)` — an id that isn't a uuid reaching Postgres is a `22P02`, i.e. a 500 on
+  _before_ the `where … in (…)` — an id that isn't a uuid reaching Postgres is a `22P02`, i.e. a 500 on
   `/cart` from a hand-edited cookie. The guard is deliberately duplicated in the cookie parser.
 - **`src/lib/cart.ts`** — the pure cart model: the cookie's name and limits (`MAX_CART_LINES`,
   `MAX_LINE_QUANTITY`, `MAX_COOKIE_LENGTH`), `parseCartCookie` / `serializeCartCookie`, `isProductId`, and the
@@ -84,7 +84,7 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
   server dependency into the browser bundle. The value is `uuid.qty` pairs joined by `~`, not JSON: `~` and `.`
   are legal cookie-octets (RFC 6265), so it is never percent-encoded and reads straight from DevTools. Parsing
   is allowlist-and-fallback — every missing, oversized, corrupt or hostile value returns `[]`, never throws.
-  `upsertCartLine` clamps the *result* (adding 3 to a bag holding 2 with stock 4 gives 4, not 5).
+  `upsertCartLine` clamps the _result_ (adding 3 to a bag holding 2 with stock 4 gives 4, not 5).
 - **`src/lib/cart-store.ts`** — the client store (`"use client"`): a module-level snapshot over
   `useSyncExternalStore`, and the **only** place in the app that writes `document.cookie`. A module store
   rather than a provider in `layout.tsx`, so no new client boundary wraps `{children}`. Two invariants are
@@ -93,7 +93,7 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
   mismatch); and `getServerSnapshot` returns `{ status: "unknown" }`, which doubles as the header's pending
   placeholder. The first read happens in `subscribe`, which only ever runs in an effect on the client.
 - **`src/data/cart.ts`** — the authoritative cart, server-only (reads `next/headers`). `getCart()` turns the
-  cookie into prices, stock and totals: the cookie carries *intent* — which pieces, how many — and every number
+  cookie into prices, stock and totals: the cookie carries _intent_ — which pieces, how many — and every number
   the UI shows (unit price, line total, subtotal, **and the quantity itself**) is decided here from the
   database. This is the clamp that survives a stale page, a hand-edited cookie, or stock changed in Drizzle
   Studio between renders. `authoritativeCartCookie()` re-serializes that answer for `CartReconciler` to write
@@ -107,13 +107,13 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
   is the header's account/sign-in link.
   The cart's components split by authority. `add-to-bag.tsx` (the product-detail control) and
   `card-add-button.tsx` (the compact button embedded in `product-card.tsx`) are Client Components that
-  *express intent* — they write the cookie through the store and never compute a price. `cart-line-item.tsx`
+  _express intent_ — they write the cookie through the store and never compute a price. `cart-line-item.tsx`
   is a **Server** Component: it renders a row's price, line total and stock notice, and embeds
   `cart-line-controls.tsx`, the client island that changes quantity and calls `router.refresh()`.
   `cart-reconciler.tsx` is a client component that renders `null`; on mount it writes the server's answer
   back to the cookie so a sold-out or deleted piece drops out.
   `account-link.tsx` and `cart-count-link.tsx` **must stay client-side**. `SiteHeader` renders from the root
-  layout, so reading the session or the cart cookie there with `headers()`/`cookies()` would opt *every* route
+  layout, so reading the session or the cart cookie there with `headers()`/`cookies()` would opt _every_ route
   into dynamic rendering and cost the catalog its `revalidate = 60` prerendering. `account-link.tsx` uses
   `useSession()`; `cart-count-link.tsx` reads the module store. Both render an invisible same-width
   placeholder while pending so the header doesn't jump. This is also why the cart cookie is **not**
@@ -138,12 +138,18 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
     `women` is an audience. It is `varchar` + `CHECK`, not a `pgEnum`, so a new value is an `ALTER TABLE`
     rather than an `ALTER TYPE ... ADD VALUE` (which cannot run inside a transaction), matching `users.role`.
     The default `'unisex'` is what made `0003_sticky_gertrude_yorkes` safe on a table that already had rows;
-    `unisex` is *inclusive*, so the listing widens `women`/`men` to include it rather than shelving it apart.
+    `unisex` is _inclusive_, so the listing widens `women`/`men` to include it rather than shelving it apart.
     Add new tables as sibling files and re-export them from `index.ts`.
-  - `seed.ts` — upserts the sample catalog. Ids are **hardcoded uuids**, not `randomUUID()` calls: the upsert
-    is keyed on them, so generated ids would insert a fresh catalog on every run instead of updating the
-    existing rows. Run through `tsx`, not plain `node`: Node's native type stripping needs explicit
-    extensions on relative imports and the schema barrel's `export * from './users'` has none.
+  - `seed.ts` — upserts the sample catalog, idempotently, by its **natural keys**: it conflicts on
+    `categories.name` and `products.slug`, and no id appears in the file. Each id is the column's own
+    `defaultRandom()`, the categories' `returning`-ed ids are what the products' `category_id` is built from
+    (the rows reach their category by name, and `CategoryName` — a union derived from `categoryRows` — makes a
+    typo a compile error), and re-running updates the rows already in the database instead of inserting a
+    second catalog beside them. The consequence is that the same catalog carries different ids in two
+    databases, which nothing depends on: `/products/<slug>` is the only URL. Upserting on hardcoded uuids is
+    what this used to do; the reason not to is that the id it keys on is the one value nobody can know in
+    advance. Run through `tsx`, not plain `node`: Node's native type stripping needs explicit extensions on
+    relative imports and the schema barrel's `export * from './users'` has none.
   - `seed-admin.ts` — creates the first administrator, or promotes an existing account. Idempotent, same tsx
     caveat as `seed.ts`. Reads `ADMIN_EMAIL`/`ADMIN_PASSWORD` from the environment, so it can be run without
     touching `.env` (`ADMIN_EMAIL=… ADMIN_PASSWORD=… npm run db:seed:admin`) — `dotenv` does not overwrite
@@ -184,7 +190,7 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
   `requireUser()` reads to build `?next=`. Real authorization is the server guards in `auth/session.ts`: a
   cookie whose session row has been deleted still gets redirected. Don't move authority into the proxy.
 - **`src/app/api/auth/[...all]/route.ts`** — mounts the Better Auth handler via `toNextJsHandler(auth)`. This
-  is the only API route; don't hand-roll auth endpoints elsewhere. The segment must be a *single* directory
+  is the only API route; don't hand-roll auth endpoints elsewhere. The segment must be a _single_ directory
   named `[...all]` — splitting it into `[...all` + `]` makes Next register the literal path
   `/api/auth/[...all/]` and 404s every real call. Verify with
   `curl -s -o /dev/null -w '%{http_code}' localhost:3000/api/auth/get-session` (expect 200, not 404; restart
@@ -204,7 +210,7 @@ nothing else — the app never sees them. **They are not in `.env.example` yet; 
 administrator.** Without them the seed script throws rather than guessing a password. `BETTER_AUTH_SECRET`
 must be at least 32 characters, or sessions cannot be signed.
 
-`DATABASE_URL` must be a real, parseable URL *by the time a query runs*: `postgres()` throws
+`DATABASE_URL` must be a real, parseable URL _by the time a query runs_: `postgres()` throws
 `ERR_INVALID_URL` on the `.env.example` placeholder (`postgresql://user:password@host:port/database`). Because
 that connection is created lazily, a placeholder fails at the first query rather than at module evaluation —
 but keep in mind that the catalog routes query from `next build` (they prerender), so a build needs a
