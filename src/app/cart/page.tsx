@@ -1,9 +1,12 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { getSession } from "@/auth/session";
 import { authoritativeCartCookie, getCart } from "@/data/cart";
 import { formatPrice } from "@/lib/format";
+import { firstParam } from "@/lib/search-params";
 import { CartLineItem } from "@/components/cart-line-item";
 import { CartReconciler } from "@/components/cart-reconciler";
+import { CheckoutButton } from "@/components/checkout-button";
 import { ValueStrip } from "@/components/value-strip";
 
 // Dynamic, like /account: it reads the cart cookie. The catalog's static routes are
@@ -14,10 +17,15 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default async function CartPage() {
+export default async function CartPage(props: PageProps<"/cart">) {
   // The cookie is the request; every number below is the answer. This is the only
   // page that resolves them, and the only place a cart total is computed.
-  const cart = await getCart();
+  //
+  // The session is read here only to choose between "Checkout" and "Sign in to
+  // check out". It is *not* the authorization: `startCheckout` guards itself, and
+  // this page has always been dynamic, so reading it costs the catalog nothing.
+  const [cart, session] = await Promise.all([getCart(), getSession()]);
+  const cancelled = firstParam((await props.searchParams).checkout) === "cancelled";
 
   return (
     <main className="flex-1">
@@ -64,6 +72,15 @@ export default async function CartPage() {
           </p>
         )}
 
+        {/* Coming back from Stripe with nothing bought. Informational only: the
+            hold is released by `checkout.session.expired`, never by this URL. */}
+        {cancelled && (
+          <p className="divider bg-bone px-4 py-3 text-sm text-ink-soft">
+            Checkout was cancelled and nothing was charged. Your bag is exactly as
+            you left it.
+          </p>
+        )}
+
         {cart.lines.length === 0 ? (
           <div className="flex flex-col items-start gap-6">
             <p className="max-w-prose text-base text-ink-soft">
@@ -94,20 +111,33 @@ export default async function CartPage() {
                 </div>
                 <div className="divider flex items-baseline justify-between gap-6 py-4">
                   <dt className="label-caps text-stone">Shipping</dt>
-                  <dd className="text-sm text-ink-soft">Calculated at checkout</dd>
+                  <dd className="text-sm text-ink-soft">Included</dd>
                 </div>
               </dl>
 
-              {/* Deliberately inert: there is no commerce backend and no Stripe yet.
-                  `disabled` plus .btn:disabled's pointer-events:none makes it
-                  unclickable, and the line below says why, rather than leaving a
-                  dead control unexplained. */}
-              <button type="button" className="btn btn-primary w-full" disabled>
-                Checkout coming soon
-              </button>
+              {/* Checkout is for account holders: an order belongs to someone, and
+                  so does the receipt. The alternative is a link, not a disabled
+                  button — a shopper who wants to buy should be able to get on with
+                  it. */}
+              {session ? (
+                <CheckoutButton />
+              ) : (
+                <>
+                  <Link
+                    className="btn btn-primary w-full"
+                    href={`/sign-in?next=${encodeURIComponent("/cart")}`}
+                  >
+                    Sign in to check out
+                  </Link>
+                  <p className="text-sm text-stone">
+                    Checkout is for account holders. Your bag will be waiting.
+                  </p>
+                </>
+              )}
+
               <p className="text-sm text-stone">
-                Checkout isn&rsquo;t built yet. Your bag is saved in this browser
-                only.
+                Your address is collected securely by Stripe. We never see your card
+                details.
               </p>
               <Link className="link self-start text-sm" href="/products">
                 Continue shopping

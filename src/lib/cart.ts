@@ -69,6 +69,16 @@ export function isProductId(value: string): boolean {
 }
 
 /**
+ * The same shape, for a uuid that is not a product's — an order id read back out
+ * of a Stripe session's metadata, say. It matters at the SQL boundary for the same
+ * reason `isProductId` does: a malformed uuid in a `where id = $1` is a `22P02`,
+ * which is a 500 rather than an empty result.
+ */
+export function isUuid(value: string): boolean {
+  return PRODUCT_ID_PATTERN.test(value);
+}
+
+/**
  * A cookie value into lines. A missing, corrupt or hostile value is an empty bag,
  * never a thrown error: every rejection below is a `continue`, so one bad line
  * costs that line and not the rest of the cart.

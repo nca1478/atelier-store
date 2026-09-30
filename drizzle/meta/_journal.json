@@ -29,6 +29,13 @@
       "when": 1790729335339,
       "tag": "0003_sticky_gertrude_yorkes",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790777270958,
+      "tag": "0004_lucky_carnage",
+      "breakpoints": true
     }
   ]
 }

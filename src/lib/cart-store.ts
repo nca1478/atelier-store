@@ -148,6 +148,15 @@ export function removeItem(productId: string): void {
 }
 
 /**
+ * The whole bag, gone. Only the confirmation page calls this, and only once the
+ * server has said the order is paid — the pieces now belong to an order, and the
+ * cookie holding them would offer to sell them a second time.
+ */
+export function clearCart(): void {
+  commit([]);
+}
+
+/**
  * The one automatic write-back, and it only ever applies the server's answer.
  * `/cart` has already dropped pieces that no longer exist and clamped every quantity
  * to live stock; this makes the cookie agree, so the header stops disagreeing with

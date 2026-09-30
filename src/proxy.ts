@@ -41,6 +41,12 @@ export const config = {
     // files. `/api` stays in scope: only the two prefixes above redirect, and
     // matching it means the auth handler gets `x-pathname` like every other
     // request instead of being a special case.
-    "/((?!_next/static|_next/image|.*\\..*).*)",
+    //
+    // The Stripe webhook is the one exception, and it earns it by being the one
+    // endpoint that is not a browser request. It wants no `x-pathname`, has no
+    // session cookie to reason about, and carries a body whose exact bytes are a
+    // signature. Keeping the payment-critical path out of the one piece of code
+    // that runs on every navigation is worth the special case.
+    "/((?!api/stripe/webhook|_next/static|_next/image|.*\\..*).*)",
   ],
 };

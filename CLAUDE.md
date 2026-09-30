@@ -10,11 +10,12 @@ A Next.js 16 (App Router, Turbopack) storefront for a fashion label. The front e
 product detail pages, shared site chrome — and reads its catalog from Postgres through Drizzle ORM.
 Authentication (Better Auth) is usable: email/password sign-up, sign-in and sign-out, sessions stored in
 Postgres, `/account` behind a session guard, and `/admin` behind a `role` column. Social login, password
-reset, email verification and 2FA are deliberately absent. Shopping works as far as _collecting_: a guest bag
-that adds pieces, changes quantities and shows a server-computed subtotal (see the cart bullets under
-Architecture). There is still no commerce backend: no Stripe, no checkout, no orders, no stock reservation —
-the "Checkout coming soon" button on `/cart` is deliberately inert. The catalog is otherwise read-only, and
-`src/db/seed.ts` / `src/db/seed-admin.ts` remain the only write paths.
+reset, email verification and 2FA are deliberately absent. Shopping works end to end: a bag that adds pieces,
+changes quantities and shows a server-computed subtotal, and a Stripe-hosted checkout that turns that bag
+into an order (see the cart and checkout bullets under Architecture). Checkout is open to **signed-in
+shoppers only**. Stripe owns the card, the hosted payment page and the truth about whether money moved; our
+database owns the catalog, the totals, the stock and the order. The catalog is otherwise read-only — the
+write paths are `src/db/seed.ts`, `src/db/seed-admin.ts`, and the checkout flow itself.
 
 ## Commands
 
@@ -32,6 +33,15 @@ npm run db:seed:admin     # create/promote the first admin (needs ADMIN_EMAIL/AD
 npm run db:studio        # open Drizzle Studio
 
 npx next typegen        # regenerate PageProps/LayoutProps route types
+```
+
+Checkout additionally needs the Stripe CLI running alongside `npm run dev`, or the webhook has nowhere to
+land and orders stay `pending`:
+
+```bash
+stripe login
+stripe listen --forward-to localhost:3000/api/stripe/webhook   # prints the whsec_… for STRIPE_WEBHOOK_SECRET
+stripe trigger checkout.session.completed                      # fire an event at the handler without a browser
 ```
 
 There is no test runner configured in this repo, and no `typecheck` script — use `npx tsc --noEmit`.
@@ -61,9 +71,21 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
     the role warrants one.
   - `admin/page.tsx` — calls `requireAdmin()`; renders the "not authorized" panel when it returns `null`.
   - `cart/page.tsx` — the bag. Server Component (dynamic: it reads the cart cookie) that renders one row per
-    line, the subtotal, and the inert checkout button. Every number on it comes from `src/data/cart.ts`; no
-    price is ever computed in the browser. `robots: { index: false }`, since a bag is per-visitor.
-  - Unlike the catalog routes, these five are `ƒ` (dynamic) — they read cookies or `searchParams`. That is
+    line, the subtotal, and the checkout control. Every number on it comes from `src/data/cart.ts`; no price
+    is ever computed in the browser. It reads the session for exactly one decision — `CheckoutButton` when
+    signed in, a "Sign in to check out" link when not — and that is presentation, not authorization: the
+    action guards itself. `robots: { index: false }`, since a bag is per-visitor.
+  - `checkout/actions.ts` — the `startCheckout` Server Action, and the only way into payment. It re-derives
+    the bag, refuses an unsellable one, reserves stock through `src/data/orders.ts`, creates the Stripe
+    session, and redirects to it. Bound to a `<form>` so the button works without JavaScript, and it takes no
+    arguments: there is nothing a form could send that would be believed.
+  - `checkout/success/page.tsx` — where Stripe sends the customer after paying, and **read-only**. Payment
+    state belongs to the webhook; a `success_url` proves nothing, so this page renders the order's real
+    status and clears the bag only once that status is `paid`. It also checks the order belongs to the
+    signed-in visitor, since a `cs_…` id is not a capability.
+  - `api/stripe/webhook/route.ts` — Stripe's callback and the **only** writer of a payment outcome. It
+    verifies the signature against the raw body and hands the event to `src/data/orders.ts`.
+  - Unlike the catalog routes, these are `ƒ` (dynamic) — they read cookies or `searchParams`. That is
     expected: `next build` should still report `/`, `/new-arrivals` and `/products/[slug]` as static/SSG. If
     they ever flip to dynamic, something in the shared chrome started reading the session or the cart on the
     server; see the `account-link.tsx` / `cart-count-link.tsx` note under `src/components/`.
@@ -99,6 +121,28 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
   Studio between renders. `authoritativeCartCookie()` re-serializes that answer for `CartReconciler` to write
   back, which is how a sold-out or deleted piece leaves the bag. A deleted piece and a sold-out one are both
   `unavailable`; the UI tells them apart by `product === null`.
+- **`src/lib/stripe.ts`** — the server-only Stripe client and the checkout's constants. `getStripe()` builds
+  the client on **first use**, not at module load, mirroring `src/db/connection.ts`, because `next build`
+  evaluates every route module and a missing key must not break the build. `CHECKOUT_HOLD_SECONDS` is the
+  30-minute reservation; `checkoutExpiresAt()` adds a minute of slack, because `expires_at` is measured
+  against **Stripe's** clock and Stripe rejects anything under 30 minutes. `appUrl()` builds the
+  `success_url`/`cancel_url` from `BETTER_AUTH_URL`, the app's existing notion of its own origin — nothing
+  new to configure. There is no publishable key here: a hosted redirect means the browser never talks to
+  Stripe's API, so no `@stripe/stripe-js` and no client bundle.
+- **`src/data/orders.ts`** — the only module that writes orders or stock, and where the money rules live.
+  Same shape as `src/data/products.ts`: callers get view models, never a join. `createOrderForCart()` is the
+  reservation: it supersedes the shopper's own stale `pending` orders first (so a cancelled checkout cannot
+  block the retry), then in **one transaction** row-locks the cart's products with `SELECT … FOR UPDATE`,
+  snapshots name/slug/price into `order_items`, inserts the `orders` row, and decrements each product with a
+  guarded `UPDATE … WHERE stock >= qty RETURNING id`. An empty `RETURNING` means someone bought it in the
+  gap between the page render and the click, so it throws `OutOfStockError` and the whole transaction rolls
+  back — no half-reserved bag. `applyStripeEvent()` is the webhook's entry point and the mirror image: the
+  idempotency row in `stripe_events` and the state change share **one transaction**, so a replay inserts
+  nothing and a crash rolls back both and genuinely replays. Every transition is a guarded
+  `UPDATE … WHERE status = 'pending'`, which is the second line of defence behind the ledger — a duplicate
+  that somehow slipped past dedupe changes zero rows, and in particular restocks nothing twice. `paid` is
+  terminal; nothing returns stock from it. `isUuid()` guards `metadata.orderId` before it reaches a `where`,
+  since a malformed id is a `22P02` → 500 → Stripe retries forever.
 - **`src/components/`** — one component per file. `site-header.tsx`, `site-footer.tsx` and `value-strip.tsx`
   are the shared chrome; `product-card.tsx` is the catalog tile (links to `/products/<slug>`) and is reused
   by the homepage grids and the related-pieces rail; `stock-status.tsx` holds the single low-stock threshold.
@@ -111,7 +155,11 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
   is a **Server** Component: it renders a row's price, line total and stock notice, and embeds
   `cart-line-controls.tsx`, the client island that changes quantity and calls `router.refresh()`.
   `cart-reconciler.tsx` is a client component that renders `null`; on mount it writes the server's answer
-  back to the cookie so a sold-out or deleted piece drops out.
+  back to the cookie so a sold-out or deleted piece drops out. `checkout-button.tsx` wraps the
+  `startCheckout` action in `useActionState`, which is what gives a refusal ("that piece sold out before
+  your checkout started") somewhere to appear without leaving the bag; `cart-clear-on-success.tsx` is its
+  twin on the confirmation page — a `null` renderer that empties the cookie, mounted **only** for an order
+  the server has already called `paid`.
   `account-link.tsx` and `cart-count-link.tsx` **must stay client-side**. `SiteHeader` renders from the root
   layout, so reading the session or the cart cookie there with `headers()`/`cookies()` would opt _every_ route
   into dynamic rendering and cost the catalog its `revalidate = 60` prerendering. `account-link.tsx` uses
@@ -139,7 +187,15 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
     rather than an `ALTER TYPE ... ADD VALUE` (which cannot run inside a transaction), matching `users.role`.
     The default `'unisex'` is what made `0003_sticky_gertrude_yorkes` safe on a table that already had rows;
     `unisex` is _inclusive_, so the listing widens `women`/`men` to include it rather than shelving it apart.
-    Add new tables as sibling files and re-export them from `index.ts`.
+    Add new tables as sibling files and re-export them from `index.ts`. `commerce.ts` is the second domain:
+    `orders`, `order_items` and `stripe_events`, following `catalog.ts` to the letter (integer cents, `uuid`
+    PKs, `varchar` + `CHECK` over `pgEnum`). `order_items` is a **snapshot** on purpose — it copies
+    `productName`, `productSlug` and `unitPriceCents` at reservation time, because the bag was priced from
+    `products` and the catalog can be reseeded, repriced or re-slugged afterwards; an order must not change
+    because `seed.ts` ran. `orders.status` is guarded by `CHECK` against the `orderStatusValues` tuple
+    exported next to the table, so the set of statuses lives in one place in TypeScript and one in SQL.
+    `stripe_events` is a webhook ledger, not a domain table: its primary key is Stripe's own `evt_…` id,
+    which is what makes an insert into it an idempotency claim.
   - `seed.ts` — upserts the sample catalog, idempotently, by its **natural keys**: it conflicts on
     `categories.name` and `products.slug`, and no id appears in the file. Each id is the column's own
     `defaultRandom()`, the categories' `returning`-ed ids are what the products' `category_id` is built from
@@ -188,7 +244,10 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
   the `/account` and `/admin` prefixes, and only by **cookie presence** via `getSessionCookie` — an optimistic
   redirect, never the authorization decision. It also stamps an `x-pathname` header, which is what
   `requireUser()` reads to build `?next=`. Real authorization is the server guards in `auth/session.ts`: a
-  cookie whose session row has been deleted still gets redirected. Don't move authority into the proxy.
+  cookie whose session row has been deleted still gets redirected. The matcher carves out
+  `/api/stripe/webhook` (see the negative lookahead in `config.matcher`) — it is the one endpoint that is not
+  a browser request, wants no `x-pathname`, has no session cookie to reason about, and carries a body whose
+  exact bytes are a signature. **Don't move authority into the proxy.**
 - **`src/app/api/auth/[...all]/route.ts`** — mounts the Better Auth handler via `toNextJsHandler(auth)`. This
   is the only API route; don't hand-roll auth endpoints elsewhere. The segment must be a _single_ directory
   named `[...all]` — splitting it into `[...all` + `]` makes Next register the literal path
@@ -204,6 +263,13 @@ by `npx next typegen`. They are derived from the routes that exist on disk, so a
 See `.env.example`: `DATABASE_URL` (Postgres, required), `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and optional
 `GITHUB_CLIENT_ID`/`SECRET` and `GOOGLE_CLIENT_ID`/`SECRET` for OAuth. Add `NEXT_PUBLIC_BETTER_AUTH_URL` when
 deploying somewhere other than `localhost:3000`, since `auth-client.ts` reads it directly.
+
+`STRIPE_SECRET_KEY` (`sk_test_…` in development) and `STRIPE_WEBHOOK_SECRET` (`whsec_…`, printed by
+`stripe listen`) are read by `src/lib/stripe.ts` and nothing else — no publishable key exists, since a hosted
+redirect never has the browser call Stripe's API. Both are required for checkout and for the webhook, and
+both are read **lazily**, so `next build` and every catalog page still work without them. Locally:
+`stripe login && stripe listen --forward-to localhost:3000/api/stripe/webhook`. **Use test-mode keys**; the
+Stripe account connected to this workspace reports `livemode: true`, and nothing here should ever touch it.
 
 `ADMIN_EMAIL`, `ADMIN_PASSWORD` (min. 8 characters) and optional `ADMIN_NAME` are read by `db:seed:admin` and
 nothing else — the app never sees them. **They are not in `.env.example` yet; add them when you first need an
